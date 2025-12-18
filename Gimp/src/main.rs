@@ -355,7 +355,7 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             else if rel_x < 54 { return Some(PanelAction::FileExport); }
             else if rel_x < 84 { return Some(PanelAction::FileSave); }
             else if rel_x < 114 { return Some(PanelAction::FileOpen); }
-            else { return Some(PanelAction::FilterInvert); } // Undo for now
+            else if rel_x < 144 { return Some(PanelAction::FilterInvert); }
         }
 
         // Brush size slider

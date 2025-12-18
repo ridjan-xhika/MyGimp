@@ -269,7 +269,13 @@ impl Canvas {
                             let img_stride = img_w as usize * 4;
                             let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
                             if img_idx + 4 <= self.drawing_layer.len() {
-                                self.drawing_layer[img_idx..img_idx + 4].copy_from_slice(&[0, 0, 0, 0]);
+                                self.drawing_layer[img_idx..img_idx + 4].copy_from_slice(&[255, 255, 255, 0]);
+                            }
+                            // Also erase from loaded_image_data
+                            if let Some(img_data) = &mut self.loaded_image_data {
+                                if img_idx + 4 <= img_data.len() {
+                                    img_data[img_idx..img_idx + 4].copy_from_slice(&[255, 255, 255, 0]);
+                                }
                             }
                         }
                     }
@@ -461,28 +467,32 @@ impl Canvas {
     
     /// Apply grayscale filter to drawing layer
     pub fn filter_grayscale(&mut self) {
-        if let Some((img_w, img_h)) = self.loaded_image_size {
-            let img_stride = img_w as usize * 4;
-            for y in 0..img_h {
-                for x in 0..img_w {
-                    let idx = (y as usize * img_stride) + (x as usize * 4);
-                    if idx + 3 < self.drawing_layer.len() {
-                        if self.drawing_layer[idx + 3] > 0 {
-                            let r = self.drawing_layer[idx] as f32;
-                            let g = self.drawing_layer[idx + 1] as f32;
-                            let b = self.drawing_layer[idx + 2] as f32;
-                            // Luminosity method
-                            let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
-                            self.drawing_layer[idx] = gray;
-                            self.drawing_layer[idx + 1] = gray;
-                            self.drawing_layer[idx + 2] = gray;
-                        }
-                    }
-                }
+        // Apply grayscale to all canvas pixels
+        for idx in (0..self.pixels.len()).step_by(4) {
+            if idx + 3 < self.pixels.len() && self.pixels[idx + 3] > 0 {
+                let r = self.pixels[idx] as f32;
+                let g = self.pixels[idx + 1] as f32;
+                let b = self.pixels[idx + 2] as f32;
+                // Luminosity method
+                let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+                self.pixels[idx] = gray;
+                self.pixels[idx + 1] = gray;
+                self.pixels[idx + 2] = gray;
             }
-            if let Some(img_data) = self.loaded_image_data.clone() {
-                let (offset_x, offset_y) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+        }
+        // Apply grayscale to loaded_image_data if present
+        if let Some(img_data) = &mut self.loaded_image_data {
+            for idx in (0..img_data.len()).step_by(4) {
+                if idx + 3 < img_data.len() && img_data[idx + 3] > 0 {
+                    let r = img_data[idx] as f32;
+                    let g = img_data[idx + 1] as f32;
+                    let b = img_data[idx + 2] as f32;
+                    // Luminosity method
+                    let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+                    img_data[idx] = gray;
+                    img_data[idx + 1] = gray;
+                    img_data[idx + 2] = gray;
+                }
             }
         }
         self.dirty = true;
