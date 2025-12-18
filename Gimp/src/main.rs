@@ -560,6 +560,8 @@ fn main() {
                                 w.request_redraw();
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
+                                let shift_pressed = event.modifiers.state().shift_key();
+                                let ctrl_pressed = event.modifiers.state().control_key();
                                 if event.state == ElementState::Pressed {
                                     if let PhysicalKey::Code(code) = event.physical_key {
                                         match code {
@@ -599,7 +601,7 @@ fn main() {
                                                     w.request_redraw();
                                                 }
                                             }
-                                            KeyCode::PageUp | KeyCode::Equal if event.state.shift_key() => {
+                                            KeyCode::PageUp | KeyCode::Equal if shift_pressed => {
                                                 // Zoom in (Shift+= or Page Up)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
@@ -608,7 +610,7 @@ fn main() {
                                                     println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
                                                 }
                                             }
-                                            KeyCode::PageDown | KeyCode::Minus if event.state.shift_key() => {
+                                            KeyCode::PageDown | KeyCode::Minus if shift_pressed => {
                                                 // Zoom out (Shift+- or Page Down)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
@@ -617,7 +619,7 @@ fn main() {
                                                     println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
                                                 }
                                             }
-                                            KeyCode::Digit0 if event.state.shift_key() => {
+                                            KeyCode::Digit0 if shift_pressed => {
                                                 // Reset zoom to 100% (Shift+0)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = 1.0;
