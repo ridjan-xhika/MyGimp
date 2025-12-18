@@ -101,15 +101,15 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     // Import / Export row
     canvas.fill_rect(x, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
-    draw_button_text(canvas, x + 2, file_buttons_y + 6, "📂IN");
-    draw_button_text(canvas, x + btn_w + UI_GAP + 2, file_buttons_y + 6, "💾EX");
+    draw_button_text(canvas, x + 4, file_buttons_y + 6, "IN");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 4, file_buttons_y + 6, "EX");
     
     // Save / Open row
     let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
     canvas.fill_rect(x, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
-    draw_button_text(canvas, x + 2, second_row_y + 6, "💾SV");
-    draw_button_text(canvas, x + btn_w + UI_GAP + 2, second_row_y + 6, "📖OP");
+    draw_button_text(canvas, x + 4, second_row_y + 6, "SV");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 4, second_row_y + 6, "OP");
     
     // Pan controls (if large image is loaded)
     if let Some((img_w, img_h)) = canvas.loaded_image_size {
@@ -307,10 +307,6 @@ fn draw_char(canvas: &mut Canvas, x: u32, y: u32, ch: char, color: [u8; 4]) {
             canvas.fill_rect(x + 3, y + 1, 1, 1, color);
             canvas.fill_rect(x + 1, y + 2, 3, 1, color);
         }
-        '📂' | '💾' | '📖' => {
-            // For emoji, draw a simple icon
-            canvas.fill_rect(x, y, 4, 6, color);
-        }
         _ => {}
     }
 }
@@ -429,9 +425,10 @@ fn handle_panel_action(
                 Ok(path) => {
                     match io::load_image(&path) {
                         Ok(img_layer) => {
+                            input.pan_offset = (0, 0);
                             canvas.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
                             window.request_redraw();
-                            println!("✓ Imported ({}x{})", img_layer.width, img_layer.height);
+                            println!("✓ Imported ({}x{}) - Use arrow keys to pan", img_layer.width, img_layer.height);
                         }
                         Err(e) => eprintln!("✗ Import failed: {}", e),
                     }
@@ -575,27 +572,32 @@ fn main() {
                                             KeyCode::BracketLeft => input.adjust_brush_radius(-2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::ArrowLeft => {
-                                                input.pan_offset.0 = (input.pan_offset.0 - 50).max(-5000);
-                                                if let Some(img_size) = c.loaded_image_size {
-                                                    // Re-paste with new offset
-                                                    match io::load_image(&"") {
-                                                        Ok(_) => {} // Will be handled by stored image
-                                                        Err(_) => {}
-                                                    }
+                                                if c.loaded_image_size.is_some() {
+                                                    input.pan_offset.0 += 50;
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
                                                 }
-                                                w.request_redraw();
                                             }
                                             KeyCode::ArrowRight => {
-                                                input.pan_offset.0 = (input.pan_offset.0 + 50).min(5000);
-                                                w.request_redraw();
+                                                if c.loaded_image_size.is_some() {
+                                                    input.pan_offset.0 -= 50;
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                }
                                             }
                                             KeyCode::ArrowUp => {
-                                                input.pan_offset.1 = (input.pan_offset.1 - 50).max(-5000);
-                                                w.request_redraw();
+                                                if c.loaded_image_size.is_some() {
+                                                    input.pan_offset.1 += 50;
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                }
                                             }
                                             KeyCode::ArrowDown => {
-                                                input.pan_offset.1 = (input.pan_offset.1 + 50).min(5000);
-                                                w.request_redraw();
+                                                if c.loaded_image_size.is_some() {
+                                                    input.pan_offset.1 -= 50;
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                }
                                             }
                                             KeyCode::KeyS => {
                                                 let new_w = (window_size.width.max(1) as f32 * 0.75).round() as u32;
@@ -638,13 +640,14 @@ fn main() {
                                                     Ok(path) => {
                                                         match io::load_image(&path) {
                                                             Ok(img_layer) => {
+                                                                input.pan_offset = (0, 0);
                                                                 c.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
                                                                 w.request_redraw();
                                                                 let filename = std::path::Path::new(&path)
                                                                     .file_name()
                                                                     .and_then(|n| n.to_str())
                                                                     .unwrap_or("image");
-                                                                println!("✓ Imported {}", filename);
+                                                                println!("✓ Imported {} - Use arrow keys to pan", filename);
                                                             }
                                                             Err(e) => eprintln!("✗ Import failed: {}", e),
                                                         }

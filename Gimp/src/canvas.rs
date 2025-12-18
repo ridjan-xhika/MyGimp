@@ -8,12 +8,15 @@ pub struct Canvas {
     pub dirty: bool,
     pub loaded_image_size: Option<(u32, u32)>, // Track size of loaded image for panning
     pub loaded_image_data: Option<Vec<u8>>, // Store loaded image for re-panning
+    pub zoom_scale: f32, // Zoom level (1.0 = 100%, 2.0 = 200%, etc.)
+    pub background_pixels: Vec<u8>, // Separate layer for loaded image
 }
 
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Self {
         let stride = aligned_stride(width);
         let pixels = vec![255; stride * height as usize];
+        let background_pixels = vec![255; stride * height as usize];
         Self {
             width,
             height,
@@ -22,6 +25,8 @@ impl Canvas {
             dirty: true,
             loaded_image_size: None,
             loaded_image_data: None,
+            zoom_scale: 1.0,
+            background_pixels,
         }
     }
 
@@ -64,17 +69,30 @@ impl Canvas {
     /// Paste an image onto the canvas with offset (for panning large images)
     pub fn paste_image_with_offset(&mut self, img_width: u32, img_height: u32, img_pixels: &[u8], offset_x: i32, offset_y: i32) {
         self.loaded_image_size = Some((img_width, img_height));
+        self.loaded_image_data = Some(img_pixels.to_vec());
         
+        // Clear background layer
+        let row_bytes = self.width as usize * 4;
+        for y in 0..self.height as usize {
+            let offset = y * self.stride;
+            if offset + row_bytes <= self.background_pixels.len() {
+                for i in 0..row_bytes {
+                    self.background_pixels[offset + i] = 255; // White background
+                }
+            }
+        }
+        
+        // Apply zoom
         let img_stride = img_width as usize * 4;
         
         for canvas_y in 0..self.height {
-            let img_y = canvas_y as i32 - offset_y;
+            let img_y = ((canvas_y as f32 / self.zoom_scale) as i32) - offset_y;
             if img_y < 0 || img_y >= img_height as i32 {
                 continue;
             }
             
             for canvas_x in 0..self.width {
-                let img_x = canvas_x as i32 - offset_x;
+                let img_x = ((canvas_x as f32 / self.zoom_scale) as i32) - offset_x;
                 if img_x < 0 || img_x >= img_width as i32 {
                     continue;
                 }
@@ -82,12 +100,46 @@ impl Canvas {
                 let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
                 let canvas_idx = (canvas_y as usize * self.stride) + (canvas_x as usize * 4);
                 
-                if img_idx + 4 <= img_pixels.len() && canvas_idx + 4 <= self.pixels.len() {
-                    self.pixels[canvas_idx..canvas_idx + 4].copy_from_slice(&img_pixels[img_idx..img_idx + 4]);
+                if img_idx + 4 <= img_pixels.len() && canvas_idx + 4 <= self.background_pixels.len() {
+                    self.background_pixels[canvas_idx..canvas_idx + 4].copy_from_slice(&img_pixels[img_idx..img_idx + 4]);
                 }
             }
         }
+        
+        // Composite background with foreground (drawings)
+        self.composite_layers();
         self.dirty = true;
+    }
+    
+    /// Composite background (image) with foreground (drawings)
+    fn composite_layers(&mut self) {
+        let row_bytes = self.width as usize * 4;
+        for y in 0..self.height as usize {
+            let offset = y * self.stride;
+            if offset + row_bytes <= self.pixels.len() && offset + row_bytes <= self.background_pixels.len() {
+                for x in 0..self.width as usize {
+                    let idx = offset + x * 4;
+                    // If foreground pixel is not white (has been drawn on), keep it
+                    if self.pixels[idx] != 255 || self.pixels[idx+1] != 255 || 
+                       self.pixels[idx+2] != 255 || self.pixels[idx+3] != 255 {
+                        // Keep foreground pixel (drawing)
+                        continue;
+                    } else {
+                        // Use background pixel (loaded image)
+                        self.pixels[idx..idx+4].copy_from_slice(&self.background_pixels[idx..idx+4]);
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Re-render the loaded image with a new offset
+    pub fn repan_image(&mut self, offset_x: i32, offset_y: i32) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
     }
 
     /// Paste an image onto the canvas at position (0,0) without scaling
