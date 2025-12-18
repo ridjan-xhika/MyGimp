@@ -645,8 +645,8 @@ fn main() {
                                                 *c = Canvas::new(window_size.width.max(1), window_size.height.max(1));
                                                 w.request_redraw();
                                             }
-                                            // IO shortcuts
-                                            KeyCode::KeyE => {
+                                            // IO shortcuts (require Ctrl)
+                                            KeyCode::KeyE if ctrl_pressed => {
                                                 // Ctrl+E: Export canvas as PNG
                                                 match io::select_export_png_path() {
                                                     Ok(path) => {
