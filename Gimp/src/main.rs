@@ -145,6 +145,35 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     let preview_w = (brush.radius * 2.0).min((PANEL_WIDTH - 16) as f32) as u32;
     let preview_x = panel_x + ((PANEL_WIDTH - 16).saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, size_y + 16, preview_w.max(4), 12, brush.color);
+    
+    // Status bar at bottom
+    let status_bar_height = 20;
+    let status_bar_y = canvas.height.saturating_sub(status_bar_height);
+    canvas.fill_rect(0, status_bar_y, canvas.width, status_bar_height, [80, 80, 80, 255]);
+    
+    // Display coordinates and color under cursor
+    if let Some(pos) = input.last_pos {
+        // Canvas-space coordinates (adjusted for image space)
+        let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
+        let canvas_y = pos.1 as u32;
+        
+        // Draw coordinates text
+        let status_text = format!("X:{} Y:{}", canvas_x, canvas_y);
+        draw_button_text(canvas, 8, status_bar_y + 2, &status_text);
+        
+        // Get color under cursor if within bounds
+        if canvas_x < canvas.width && canvas_y < canvas.height {
+            if let Some(color) = canvas.get_pixel(canvas_x, canvas_y) {
+                let color_text = format!("RGB({},{},{})", color[0], color[1], color[2]);
+                let color_x = 200;
+                draw_button_text(canvas, color_x, status_bar_y + 2, &color_text);
+                
+                // Draw color swatch
+                let swatch_x = color_x + 80;
+                canvas.fill_rect(swatch_x, status_bar_y + 2, 12, 16, color);
+            }
+        }
+    }
 }
 
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
@@ -711,18 +740,21 @@ fn main() {
                                             KeyCode::KeyG if ctrl_pressed => {
                                                 // Ctrl+G: Grayscale
                                                 c.filter_grayscale();
+                                                history.push(c);
                                                 w.request_redraw();
                                                 println!("✓ Applied Grayscale filter");
                                             }
                                             KeyCode::KeyB if ctrl_pressed && shift_pressed => {
                                                 // Ctrl+Shift+B: Brightness/Contrast
                                                 c.filter_brightness_contrast(30.0, 20.0);
+                                                history.push(c);
                                                 w.request_redraw();
                                                 println!("✓ Applied Brightness/Contrast filter");
                                             }
                                             KeyCode::KeyU if ctrl_pressed => {
                                                 // Ctrl+U: Blur
                                                 c.filter_blur(2);
+                                                history.push(c);
                                                 w.request_redraw();
                                                 println!("✓ Applied Blur filter");
                                             }
