@@ -129,14 +129,34 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     let panel_x = 8;
     let panel_y = TOOLBAR_HEIGHT + 8;
     
-    // Foreground / Background swatches (toggle color picker)
+    // Foreground / Background swatches (click either to open HSV picker)
+    // Foreground (front, larger)
     canvas.fill_rect(panel_x, panel_y, 24, 24, input.brush.color);
-    canvas.fill_rect(panel_x + 26, panel_y + 4, 22, 22, [240, 240, 240, 255]);
     let border = [30, 30, 30, 255];
     canvas.fill_rect(panel_x, panel_y, 24, 1, border);
     canvas.fill_rect(panel_x, panel_y, 1, 24, border);
     canvas.fill_rect(panel_x + 23, panel_y, 1, 24, border);
     canvas.fill_rect(panel_x, panel_y + 23, 24, 1, border);
+    // Background (behind, smaller)
+    canvas.fill_rect(panel_x + 26, panel_y + 4, 22, 22, input.bg_color);
+    canvas.fill_rect(panel_x + 26, panel_y + 4, 22, 1, border);
+    canvas.fill_rect(panel_x + 26, panel_y + 4, 1, 22, border);
+    canvas.fill_rect(panel_x + 26 + 21, panel_y + 4, 1, 22, border);
+    canvas.fill_rect(panel_x + 26, panel_y + 4 + 21, 22, 1, border);
+    // Active swatch highlight (white border)
+    if input.active_is_foreground {
+        canvas.fill_rect(panel_x.saturating_sub(2), panel_y.saturating_sub(2), 28, 2, [255, 255, 255, 255]);
+        canvas.fill_rect(panel_x.saturating_sub(2), panel_y + 24, 28, 2, [255, 255, 255, 255]);
+        canvas.fill_rect(panel_x.saturating_sub(2), panel_y.saturating_sub(2), 2, 28, [255, 255, 255, 255]);
+        canvas.fill_rect(panel_x + 26, panel_y.saturating_sub(2), 2, 28, [255, 255, 255, 255]);
+    } else {
+        let bx = panel_x + 26;
+        let by = panel_y + 4;
+        canvas.fill_rect(bx.saturating_sub(2), by.saturating_sub(2), 26, 2, [255, 255, 255, 255]);
+        canvas.fill_rect(bx.saturating_sub(2), by + 22, 26, 2, [255, 255, 255, 255]);
+        canvas.fill_rect(bx.saturating_sub(2), by.saturating_sub(2), 2, 26, [255, 255, 255, 255]);
+        canvas.fill_rect(bx + 22, by.saturating_sub(2), 2, 26, [255, 255, 255, 255]);
+    }
 
     // Color palette
     let mut col_y = panel_y + 30;
@@ -177,25 +197,14 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         let sv_w = (PANEL_WIDTH - 16).saturating_sub(hue_w + 6);
         let sv_h = sv_w;
 
-        // Draw hue bar
-        for iy in 0..hue_h {
-            let hh = iy as f32 / hue_h as f32;
-            let rgb = hsv_to_rgb_u8(hh, 1.0, 1.0);
-            canvas.fill_rect(hue_x, hue_y + iy, hue_w, 1, [rgb[0], rgb[1], rgb[2], 255]);
-        }
+        // Draw hue bar (fast)
+        draw_hue_bar_fast(canvas, hue_x, hue_y, hue_w, hue_h);
         // Hue indicator
         let hue_pos = (input.hue.clamp(0.0, 1.0) * hue_h as f32).round() as u32;
         canvas.fill_rect(hue_x, hue_y + hue_pos.saturating_sub(1), hue_w, 2, [255, 255, 255, 255]);
 
-        // Draw SV square for current hue
-        for iy in 0..sv_h {
-            let v = 1.0 - (iy as f32 / sv_h as f32);
-            for ix in 0..sv_w {
-                let s = ix as f32 / sv_w as f32;
-                let rgb = hsv_to_rgb_u8(input.hue, s, v);
-                canvas.fill_rect(sv_x + ix, sv_y + iy, 1, 1, [rgb[0], rgb[1], rgb[2], 255]);
-            }
-        }
+        // Draw SV square for current hue (fast)
+        draw_sv_square_fast(canvas, sv_x, sv_y, sv_w, sv_h, input.hue);
         // SV indicator
         let sv_ix = (input.sat.clamp(0.0, 1.0) * sv_w as f32).round() as u32;
         let sv_iy = ((1.0 - input.val.clamp(0.0, 1.0)) * sv_h as f32).round() as u32;
@@ -223,6 +232,41 @@ fn hsv_to_rgb_u8(h: f32, s: f32, v: f32) -> [u8; 3] {
         (g.clamp(0.0, 1.0) * 255.0).round() as u8,
         (b.clamp(0.0, 1.0) * 255.0).round() as u8,
     ]
+}
+
+fn draw_hue_bar_fast(canvas: &mut Canvas, x: u32, y: u32, w: u32, h: u32) {
+    for iy in 0..h {
+        let hh = iy as f32 / h as f32;
+        let rgb = hsv_to_rgb_u8(hh, 1.0, 1.0);
+        let row = (y + iy) as usize * canvas.stride;
+        for ix in 0..w {
+            let idx = row + (x + ix) as usize * 4;
+            if idx + 3 <= canvas.pixels.len() {
+                canvas.pixels[idx] = rgb[0];
+                canvas.pixels[idx + 1] = rgb[1];
+                canvas.pixels[idx + 2] = rgb[2];
+                canvas.pixels[idx + 3] = 255;
+            }
+        }
+    }
+}
+
+fn draw_sv_square_fast(canvas: &mut Canvas, x: u32, y: u32, w: u32, h: u32, hue: f32) {
+    for iy in 0..h {
+        let v = 1.0 - (iy as f32 / h as f32);
+        let row = (y + iy) as usize * canvas.stride;
+        for ix in 0..w {
+            let s = ix as f32 / w as f32;
+            let rgb = hsv_to_rgb_u8(hue, s, v);
+            let idx = row + (x + ix) as usize * 4;
+            if idx + 3 <= canvas.pixels.len() {
+                canvas.pixels[idx] = rgb[0];
+                canvas.pixels[idx + 1] = rgb[1];
+                canvas.pixels[idx + 2] = rgb[2];
+                canvas.pixels[idx + 3] = 255;
+            }
+        }
+    }
 }
     // Status bar at bottom
     let status_bar_height = 20;
@@ -317,9 +361,15 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     let panel_y = TOOLBAR_HEIGHT + 8;
     let mut col_y = panel_y;
     
-    // Foreground/background swatch toggle
+    // Foreground swatch click
     if y >= panel_y && y < panel_y + 24 && x >= panel_x && x < panel_x + 24 {
-        return Some(PanelAction::ToggleColorPicker);
+        return Some(PanelAction::OpenColorPickerForeground);
+    }
+    // Background swatch click
+    let bg_x = panel_x + 26;
+    let bg_y = panel_y + 4;
+    if y >= bg_y && y < bg_y + 22 && x >= bg_x && x < bg_x + 22 {
+        return Some(PanelAction::OpenColorPickerBackground);
     }
     
     // Color palette
@@ -376,48 +426,27 @@ fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, siz
     if icon.pixels.is_empty() || icon.width == 0 || icon.height == 0 {
         return;
     }
-    
-    let scale_x = size as f32 / icon.width as f32;
-    let scale_y = size as f32 / icon.height as f32;
-    
-    // Iterate through the original icon pixel dimensions
-    for iy in 0..icon.height {
-        for ix in 0..icon.width {
-            let pixel_idx = ((iy * icon.width + ix) * 4) as usize;
-            if pixel_idx + 3 < icon.pixels.len() {
-                let r = icon.pixels[pixel_idx];
-                let g = icon.pixels[pixel_idx + 1];
-                let b = icon.pixels[pixel_idx + 2];
-                let a = icon.pixels[pixel_idx + 3];
-                
-                // Only draw if not fully transparent
-                if a > 128 {
-                    // Scale up the pixel to destination size
-                    let dest_x_start = ((ix as f32 * scale_x) as u32).min(size);
-                    let dest_y_start = ((iy as f32 * scale_y) as u32).min(size);
-                    let dest_x_end = (((ix + 1) as f32 * scale_x) as u32).min(size);
-                    let dest_y_end = (((iy + 1) as f32 * scale_y) as u32).min(size);
-                    
-                    for dy in dest_y_start..dest_y_end {
-                        let screen_y = y + dy;
-                        if screen_y < canvas.height {
-                            let row = screen_y as usize * canvas.stride;
-                            for dx in dest_x_start..dest_x_end {
-                                let screen_x = x + dx;
-                                if screen_x < canvas.width {
-                                    let dest_idx = row + screen_x as usize * 4;
-                                    if dest_idx + 3 < canvas.pixels.len() {
-                                        canvas.pixels[dest_idx] = r;
-                                        canvas.pixels[dest_idx + 1] = g;
-                                        canvas.pixels[dest_idx + 2] = b;
-                                        canvas.pixels[dest_idx + 3] = 255;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    let src_w = icon.width as f32;
+    let src_h = icon.height as f32;
+    // Iterate destination pixels only (fast), sample source with nearest neighbor
+    for dy in 0..size {
+        let screen_y = y + dy;
+        if screen_y >= canvas.height { break; }
+        let row = screen_y as usize * canvas.stride;
+        for dx in 0..size {
+            let screen_x = x + dx;
+            if screen_x >= canvas.width { break; }
+            let sx = ((dx as f32 / size as f32) * src_w).floor() as u32;
+            let sy = ((dy as f32 / size as f32) * src_h).floor() as u32;
+            let sidx = ((sy * icon.width + sx) * 4) as usize;
+            if sidx + 3 >= icon.pixels.len() { continue; }
+            let a = icon.pixels[sidx + 3];
+            if a < 10 { continue; }
+            let dest_idx = row + screen_x as usize * 4;
+            canvas.pixels[dest_idx] = icon.pixels[sidx];
+            canvas.pixels[dest_idx + 1] = icon.pixels[sidx + 1];
+            canvas.pixels[dest_idx + 2] = icon.pixels[sidx + 2];
+            canvas.pixels[dest_idx + 3] = 255;
         }
     }
 }
@@ -499,6 +528,8 @@ enum PanelAction {
     FilterBrightness,
     FilterBlur,
     ToggleColorPicker,
+    OpenColorPickerForeground,
+    OpenColorPickerBackground,
     PickerHue(f32),
     PickerSV(f32, f32),
 }

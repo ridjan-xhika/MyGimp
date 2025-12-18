@@ -20,6 +20,7 @@ pub struct InputState {
     pub last_pos: Option<(f32, f32)>,
     pub brush: Brush,
     pub base_color: [u8; 4],
+    pub bg_color: [u8; 4],
     pub brightness: f32,
     pub slider_dragging: Option<SliderDrag>,
     pub pan_offset: (i32, i32), // (x, y) offset for viewing large images
@@ -33,6 +34,7 @@ pub struct InputState {
     pub hue: f32, // 0..1
     pub sat: f32, // 0..1
     pub val: f32, // 0..1
+    pub active_is_foreground: bool,
 }
 
 impl InputState {
@@ -41,6 +43,7 @@ impl InputState {
             drawing: false,
             last_pos: None,
             base_color: brush.color,
+            bg_color: [255, 255, 255, 255],
             brightness: 1.0,
             brush,
             slider_dragging: None,
@@ -54,6 +57,7 @@ impl InputState {
             hue: 0.0,
             sat: 1.0,
             val: 1.0,
+            active_is_foreground: true,
         }
     }
 
@@ -65,6 +69,10 @@ impl InputState {
     pub fn set_brush_color(&mut self, color: [u8; 4]) {
         self.base_color = color;
         self.apply_brightness();
+    }
+
+    pub fn set_background_color(&mut self, color: [u8; 4]) {
+        self.bg_color = color;
     }
 
     pub fn adjust_brush_radius(&mut self, delta: f32, min: f32, max: f32) {
@@ -106,12 +114,26 @@ impl InputState {
         self.show_color_picker = !self.show_color_picker;
     }
 
+    pub fn open_color_picker_foreground(&mut self) {
+        self.active_is_foreground = true;
+        self.show_color_picker = true;
+    }
+
+    pub fn open_color_picker_background(&mut self) {
+        self.active_is_foreground = false;
+        self.show_color_picker = true;
+    }
+
     pub fn set_hsv(&mut self, h: f32, s: f32, v: f32) {
         self.hue = h.clamp(0.0, 1.0);
         self.sat = s.clamp(0.0, 1.0);
         self.val = v.clamp(0.0, 1.0);
         let rgb = hsv_to_rgb(self.hue, self.sat, self.val);
-        self.set_brush_color([rgb[0], rgb[1], rgb[2], 255]);
+        if self.active_is_foreground {
+            self.set_brush_color([rgb[0], rgb[1], rgb[2], 255]);
+        } else {
+            self.set_background_color([rgb[0], rgb[1], rgb[2], 255]);
+        }
     }
 }
 
