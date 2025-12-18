@@ -93,19 +93,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     let preview_x = x + (w.saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, preview_y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
 
-    // Tool selection buttons
+    // Tool selection buttons - larger and more readable
     let tools_y = preview_y + UI_BUTTON_H / 2 + UI_GAP;
-    let tool_btn_w = (w - UI_GAP) / 2;
-    let tool_btn_h = 18;
-    let tool_gap = 3;
+    let tool_btn_h = 24; // Taller buttons
+    let tool_gap = 4; // More spacing
     
     let tools = [
-        (input::Tool::Brush, "Brush"),
-        (input::Tool::Eraser, "Eraser"),
-        (input::Tool::FillBucket, "Fill"),
-        (input::Tool::ColorPicker, "Picker"),
-        (input::Tool::RectSelect, "Select"),
-        (input::Tool::Move, "Move"),
+        (input::Tool::Brush, "BRUSH"),
+        (input::Tool::Eraser, "ERASER"),
+        (input::Tool::FillBucket, "FILL"),
+        (input::Tool::ColorPicker, "PICKER"),
+        (input::Tool::Move, "MOVE"),
     ];
     
     let mut tool_y = tools_y;
@@ -113,7 +111,7 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         let is_active = input.current_tool == *tool;
         let btn_color = if is_active { [100, 150, 255, 255] } else { [180, 180, 180, 255] };
         canvas.fill_rect(x, tool_y, w, tool_btn_h, btn_color);
-        draw_button_text(canvas, x + 4, tool_y + 4, name);
+        draw_button_text(canvas, x + 6, tool_y + 7, name);
         tool_y += tool_btn_h + tool_gap;
     }
 
@@ -194,15 +192,14 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     // Tool selection buttons
     let preview_y = bright_geom.row_y + bright_geom.row_h + UI_GAP + UI_BUTTON_H / 2 + UI_GAP;
     let tools_y = preview_y;
-    let tool_btn_h = 18;
-    let tool_gap = 3;
+    let tool_btn_h = 24;
+    let tool_gap = 4;
     
     let tools = [
         input::Tool::Brush,
         input::Tool::Eraser,
         input::Tool::FillBucket,
         input::Tool::ColorPicker,
-        input::Tool::RectSelect,
         input::Tool::Move,
     ];
     
@@ -846,13 +843,6 @@ fn main() {
                                                     }
                                                     w.request_redraw();
                                                 }
-                                                input::Tool::RectSelect => {
-                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
-                                                    let canvas_y = pos.1 as u32;
-                                                    input.selection_start = Some((canvas_x, canvas_y));
-                                                    input.selection_end = None;
-                                                    input.drawing = true;
-                                                }
                                                 input::Tool::Move => {
                                                     input.drawing = true;
                                                 }
@@ -863,9 +853,7 @@ fn main() {
                                     // Mouse released
                                     if input.current_tool == input::Tool::Move && input.drawing {
                                         // Apply move if we dragged
-                                        if let (Some(start), Some(end)) = (input.last_pos, input.last_pos) {
-                                            // Movement was already applied during drag
-                                        }
+
                                     }
                                     input.set_slider_drag(None);
                                     input.stop_drawing();
@@ -907,20 +895,19 @@ fn main() {
                                                 w.request_redraw();
                                             }
                                             input::Tool::Eraser => {
-                                                // Eraser is just a brush with transparent color
-                                                let mut eraser = input.brush;
-                                                eraser.color = [0, 0, 0, 0]; // Fully transparent
+                                                // Eraser directly sets pixels to transparent
+                                                c.erase_circle((p.0 - PANEL_WIDTH as f32).max(0.0), p.1, input.brush.radius);
                                                 if let Some(last) = prev {
-                                                    eraser.stroke(c, last, p);
-                                                } else {
-                                                    eraser.stamp(c, p);
+                                                    // Draw line of eraser stamps
+                                                    let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
+                                                    let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
+                                                    for i in 0..=steps {
+                                                        let t = i as f32 / steps as f32;
+                                                        let ix = last.0 + (p.0 - last.0) * t;
+                                                        let iy = last.1 + (p.1 - last.1) * t;
+                                                        c.erase_circle((ix - PANEL_WIDTH as f32).max(0.0), iy, input.brush.radius);
+                                                    }
                                                 }
-                                                w.request_redraw();
-                                            }
-                                            input::Tool::RectSelect => {
-                                                let canvas_x = (p.0 - PANEL_WIDTH as f32).max(0.0) as u32;
-                                                let canvas_y = p.1 as u32;
-                                                input.selection_end = Some((canvas_x, canvas_y));
                                                 w.request_redraw();
                                             }
                                             input::Tool::Move => {
@@ -940,29 +927,6 @@ fn main() {
                             }
                             WindowEvent::RedrawRequested => {
                                 draw_ui(c, &input.brush, input.brightness, &input);
-                                
-                                // Draw selection rectangle if active
-                                if let (Some(start), Some(end)) = (input.selection_start, input.selection_end) {
-                                    let x1 = start.0.min(end.0);
-                                    let y1 = start.1.min(end.1);
-                                    let x2 = start.0.max(end.0);
-                                    let y2 = start.1.max(end.1);
-                                    
-                                    // Draw selection border (dashed effect with alternating pixels)
-                                    let sel_color = [255, 255, 0, 255]; // Yellow
-                                    for x in x1..=x2 {
-                                        if (x % 4) < 2 {
-                                            if y1 < c.height { c.pixels[y1 as usize * c.stride + x as usize * 4..][..4].copy_from_slice(&sel_color); }
-                                            if y2 < c.height { c.pixels[y2 as usize * c.stride + x as usize * 4..][..4].copy_from_slice(&sel_color); }
-                                        }
-                                    }
-                                    for y in y1..=y2 {
-                                        if (y % 4) < 2 {
-                                            if x1 < c.width { c.pixels[y as usize * c.stride + x1 as usize * 4..][..4].copy_from_slice(&sel_color); }
-                                            if x2 < c.width { c.pixels[y as usize * c.stride + x2 as usize * 4..][..4].copy_from_slice(&sel_color); }
-                                        }
-                                    }
-                                }
                                 
                                 if let Err(e) = g.render(c) {
                                     match e {

@@ -12,7 +12,6 @@ pub enum Tool {
     Eraser,
     FillBucket,
     ColorPicker,
-    RectSelect,
     Move,
 }
 
