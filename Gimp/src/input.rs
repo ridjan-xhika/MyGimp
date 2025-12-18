@@ -4,6 +4,8 @@ pub struct InputState {
     pub drawing: bool,
     pub last_pos: Option<(f32, f32)>,
     pub brush: Brush,
+    pub base_color: [u8; 4],
+    pub brightness: f32,
 }
 
 impl InputState {
@@ -11,6 +13,8 @@ impl InputState {
         Self {
             drawing: false,
             last_pos: None,
+            base_color: brush.color,
+            brightness: 1.0,
             brush,
         }
     }
@@ -21,11 +25,31 @@ impl InputState {
     }
 
     pub fn set_brush_color(&mut self, color: [u8; 4]) {
-        self.brush.color = color;
+        self.base_color = color;
+        self.apply_brightness();
     }
 
     pub fn adjust_brush_radius(&mut self, delta: f32, min: f32, max: f32) {
         let r = (self.brush.radius + delta).clamp(min, max);
         self.brush.radius = r;
+    }
+
+    pub fn set_brightness(&mut self, value: f32, min: f32, max: f32) {
+        self.brightness = value.clamp(min, max);
+        self.apply_brightness();
+    }
+
+    pub fn adjust_brightness(&mut self, delta: f32, min: f32, max: f32) {
+        self.brightness = (self.brightness + delta).clamp(min, max);
+        self.apply_brightness();
+    }
+
+    fn apply_brightness(&mut self) {
+        let factor = self.brightness;
+        let mut c = self.base_color;
+        for i in 0..3 {
+            c[i] = ((c[i] as f32 * factor).clamp(0.0, 255.0)).round() as u8;
+        }
+        self.brush.color = c;
     }
 }

@@ -23,15 +23,21 @@ const BRUSH_COLOR: [u8; 4] = [0, 0, 0, 255];
 const BRUSH_RADIUS: f32 = 6.0;
 const BRUSH_RADIUS_MIN: f32 = 1.0;
 const BRUSH_RADIUS_MAX: f32 = 64.0;
-const PANEL_WIDTH: u32 = 96;
-const UI_MARGIN: u32 = 8;
-const UI_BUTTON_H: u32 = 28;
-const UI_GAP: u32 = 8;
-const PALETTE: [[u8; 4]; 4] = [
-    [0, 0, 0, 255],     // Black
-    [255, 0, 0, 255],   // Red
-    [0, 128, 255, 255], // Blue-ish
-    [0, 180, 0, 255],   // Green
+const BRIGHT_MIN: f32 = 0.3;
+const BRIGHT_MAX: f32 = 1.6;
+const PANEL_WIDTH: u32 = 88;
+const UI_MARGIN: u32 = 6;
+const UI_BUTTON_H: u32 = 20;
+const UI_GAP: u32 = 6;
+const PALETTE: [[u8; 4]; 8] = [
+    [0, 0, 0, 255],       // Black
+    [255, 0, 0, 255],     // Red
+    [0, 128, 255, 255],   // Blue-ish
+    [0, 180, 0, 255],     // Green
+    [255, 200, 0, 255],   // Orange
+    [255, 255, 0, 255],   // Yellow
+    [255, 0, 255, 255],   // Magenta
+    [255, 255, 255, 255], // White
 ];
 
 fn window_to_canvas(
@@ -47,15 +53,15 @@ fn window_to_canvas(
     Some((x.clamp(0.0, (canvas.width - 1) as f32), y.clamp(0.0, (canvas.height - 1) as f32)))
 }
 
-fn draw_ui(canvas: &mut Canvas, brush: &Brush) {
+fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     // Background
-    canvas.fill_rect(0, 0, PANEL_WIDTH.min(canvas.width), canvas.height, [220, 220, 220, 255]);
+    canvas.fill_rect(0, 0, PANEL_WIDTH.min(canvas.width), canvas.height, [230, 230, 230, 255]);
 
     let mut y = UI_MARGIN;
     let x = UI_MARGIN;
     let w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
 
-    // Palette buttons
+    // Palette buttons (more colors, smaller height)
     for color in PALETTE {
         canvas.fill_rect(x, y, w, UI_BUTTON_H, color);
         y += UI_BUTTON_H + UI_GAP;
@@ -74,6 +80,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush) {
     canvas.fill_rect(x, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, small_color);
     canvas.fill_rect(x + w / 2 + UI_GAP / 2, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, large_color);
     y += UI_BUTTON_H + UI_GAP;
+
+    // Brightness slider area
+    let slider_h = UI_BUTTON_H * 2;
+    let slider_track_color = [200, 200, 200, 255];
+    canvas.fill_rect(x, y, w, slider_h, slider_track_color);
+    let knob_h = 6;
+    let t = ((brightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)).clamp(0.0, 1.0);
+    let knob_y = y + ((1.0 - t) * (slider_h - knob_h) as f32).round() as u32;
+    let knob_color = [60, 60, 60, 255];
+    canvas.fill_rect(x + 2, knob_y + 2, w - 4, knob_h, knob_color);
+    y += slider_h + UI_GAP;
 
     // Brush preview bar
     let preview_w = (brush.radius * 2.0).min(w as f32) as u32;
@@ -123,6 +140,15 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             return Some(PanelAction::CanvasLarger);
         }
     }
+    current_y += UI_BUTTON_H + UI_GAP;
+
+    // Brightness slider
+    let slider_h = UI_BUTTON_H * 2;
+    if y >= current_y && y < current_y + slider_h {
+        let rel = (y - current_y) as f32 / slider_h as f32;
+        let value = BRIGHT_MIN + (1.0 - rel.clamp(0.0, 1.0)) * (BRIGHT_MAX - BRIGHT_MIN);
+        return Some(PanelAction::Brightness(value));
+    }
 
     None
 }
@@ -133,6 +159,7 @@ enum PanelAction {
     SizeDown,
     CanvasSmaller,
     CanvasLarger,
+    Brightness(f32),
 }
 
 fn handle_panel_action(
@@ -165,6 +192,10 @@ fn handle_panel_action(
             *window_size = PhysicalSize::new(new_w.max(1), new_h.max(1));
             gpu.resize(*window_size);
             *canvas = Canvas::new(window_size.width.max(1), window_size.height.max(1));
+            window.request_redraw();
+        }
+        PanelAction::Brightness(value) => {
+            input.set_brightness(value, BRIGHT_MIN, BRIGHT_MAX);
             window.request_redraw();
         }
     }
@@ -278,7 +309,7 @@ fn main() {
                                 }
                             }
                             WindowEvent::RedrawRequested => {
-                                draw_ui(c, &input.brush);
+                                draw_ui(c, &input.brush, input.brightness);
                                 if let Err(e) = g.render(c) {
                                     match e {
                                         wgpu::SurfaceError::Lost => {
