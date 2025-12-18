@@ -1,12 +1,18 @@
 use crate::brush::Brush;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SliderDrag {
+    Size,
+    Brightness,
+}
+
 pub struct InputState {
     pub drawing: bool,
     pub last_pos: Option<(f32, f32)>,
     pub brush: Brush,
     pub base_color: [u8; 4],
     pub brightness: f32,
-    pub slider_dragging: bool,
+    pub slider_dragging: Option<SliderDrag>,
 }
 
 impl InputState {
@@ -17,7 +23,7 @@ impl InputState {
             base_color: brush.color,
             brightness: 1.0,
             brush,
-            slider_dragging: false,
+            slider_dragging: None,
         }
     }
 
@@ -46,9 +52,9 @@ impl InputState {
         self.apply_brightness();
     }
 
-    pub fn set_slider_drag(&mut self, active: bool) {
-        self.slider_dragging = active;
-        if !active {
+    pub fn set_slider_drag(&mut self, target: Option<SliderDrag>) {
+        self.slider_dragging = target;
+        if target.is_none() {
             self.last_pos = None;
         }
     }
