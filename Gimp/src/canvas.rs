@@ -11,6 +11,7 @@ pub struct Canvas {
     pub zoom_scale: f32, // Zoom level (1.0 = 100%, 2.0 = 200%, etc.)
     pub drawing_layer: Vec<u8>, // User drawings layer in IMAGE-SPACE coordinates
     pub pan_offset: (i32, i32), // Store pan offset so drawings can use it
+    pub grayscale_active: bool, // Toggle state for grayscale filter
 }
 
 impl Canvas {
@@ -29,6 +30,7 @@ impl Canvas {
             zoom_scale: 1.0,
             drawing_layer,
             pan_offset: (0, 0),
+            grayscale_active: false,
         }
     }
 
@@ -312,6 +314,78 @@ impl Canvas {
         self.dirty = true;
     }
 
+    pub fn apply_brightness_circle(&mut self, cx: f32, cy: f32, radius: f32, intensity: i32) {
+        if radius <= 0.0 {
+            return;
+        }
+        let r2 = radius * radius;
+        let min_x = (cx - radius).floor().max(0.0) as i32;
+        let max_x = (cx + radius).ceil().min((self.width - 1) as f32) as i32;
+        let min_y = (cy - radius).floor().max(0.0) as i32;
+        let max_y = (cy + radius).ceil().min((self.height - 1) as f32) as i32;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                if dx * dx + dy * dy <= r2 {
+                    let idx = y as usize * self.stride + x as usize * 4;
+                    if idx + 3 < self.pixels.len() {
+                        let r = self.pixels[idx] as i32;
+                        let g = self.pixels[idx + 1] as i32;
+                        let b = self.pixels[idx + 2] as i32;
+                        
+                        let new_r = ((r + intensity) as i32).clamp(0, 255) as u8;
+                        let new_g = ((g + intensity) as i32).clamp(0, 255) as u8;
+                        let new_b = ((b + intensity) as i32).clamp(0, 255) as u8;
+                        
+                        self.pixels[idx] = new_r;
+                        self.pixels[idx + 1] = new_g;
+                        self.pixels[idx + 2] = new_b;
+                    }
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
+    pub fn apply_grayscale_circle(&mut self, cx: f32, cy: f32, radius: f32, intensity: i32) {
+        if radius <= 0.0 {
+            return;
+        }
+        let r2 = radius * radius;
+        let min_x = (cx - radius).floor().max(0.0) as i32;
+        let max_x = (cx + radius).ceil().min((self.width - 1) as f32) as i32;
+        let min_y = (cy - radius).floor().max(0.0) as i32;
+        let max_y = (cy + radius).ceil().min((self.height - 1) as f32) as i32;
+        let intensity_f = (intensity.clamp(0, 100) as f32) / 100.0;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                if dx * dx + dy * dy <= r2 {
+                    let idx = y as usize * self.stride + x as usize * 4;
+                    if idx + 3 < self.pixels.len() {
+                        let r = self.pixels[idx] as f32;
+                        let g = self.pixels[idx + 1] as f32;
+                        let b = self.pixels[idx + 2] as f32;
+                        
+                        let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+                        let new_r = (r * (1.0 - intensity_f) + gray as f32 * intensity_f) as u8;
+                        let new_g = (g * (1.0 - intensity_f) + gray as f32 * intensity_f) as u8;
+                        let new_b = (b * (1.0 - intensity_f) + gray as f32 * intensity_f) as u8;
+                        
+                        self.pixels[idx] = new_r;
+                        self.pixels[idx + 1] = new_g;
+                        self.pixels[idx + 2] = new_b;
+                    }
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
         if w == 0 || h == 0 {
             return;
@@ -467,34 +541,32 @@ impl Canvas {
     
     /// Apply grayscale filter to drawing layer
     pub fn filter_grayscale(&mut self) {
-        // Apply grayscale to all canvas pixels
+        // Toggle grayscale: if active, restore the original loaded image into pixels;
+        // if inactive, convert display buffer to grayscale without mutating loaded_image_data.
+        if self.grayscale_active {
+            if let Some((img_w, img_h)) = self.loaded_image_size {
+                if let Some(img_data) = self.loaded_image_data.clone() {
+                    let (ox, oy) = self.pan_offset;
+                    self.paste_image_with_offset(img_w, img_h, &img_data, ox, oy);
+                }
+            }
+            self.grayscale_active = false;
+            self.dirty = true;
+            return;
+        }
+
         for idx in (0..self.pixels.len()).step_by(4) {
             if idx + 3 < self.pixels.len() && self.pixels[idx + 3] > 0 {
                 let r = self.pixels[idx] as f32;
                 let g = self.pixels[idx + 1] as f32;
                 let b = self.pixels[idx + 2] as f32;
-                // Luminosity method
                 let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
                 self.pixels[idx] = gray;
                 self.pixels[idx + 1] = gray;
                 self.pixels[idx + 2] = gray;
             }
         }
-        // Apply grayscale to loaded_image_data if present
-        if let Some(img_data) = &mut self.loaded_image_data {
-            for idx in (0..img_data.len()).step_by(4) {
-                if idx + 3 < img_data.len() && img_data[idx + 3] > 0 {
-                    let r = img_data[idx] as f32;
-                    let g = img_data[idx + 1] as f32;
-                    let b = img_data[idx + 2] as f32;
-                    // Luminosity method
-                    let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
-                    img_data[idx] = gray;
-                    img_data[idx + 1] = gray;
-                    img_data[idx + 2] = gray;
-                }
-            }
-        }
+        self.grayscale_active = true;
         self.dirty = true;
     }
     

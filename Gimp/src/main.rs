@@ -106,14 +106,15 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         tool_x += tool_size + tool_gap;
     }
     
-    // Right side of toolbar: File operations with icons
-    let file_x = canvas.width.saturating_sub(150);
+    // Right side of toolbar: File operations with icons + filters
+    let file_x = canvas.width.saturating_sub(180);
     let file_btns = [
         (file_x, &icons.import),           // Import
         (file_x + 30, &icons.export),      // Export
         (file_x + 60, &icons.save),        // Save
-        (file_x + 90, &icons.brightness),  // Brightness (placeholder for Open)
-        (file_x + 120, &icons.invert),     // Undo (using invert as placeholder)
+        (file_x + 90, &icons.brightness),  // Brightness filter
+        (file_x + 120, &icons.invert),     // Invert filter
+        (file_x + 150, &icons.grayscale),  // Grayscale filter (toggle)
     ];
     
     for (x, icon) in &file_btns {
@@ -228,6 +229,8 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         canvas.fill_rect(cx.saturating_sub(6), cy.saturating_sub(1), 12, 1, [0, 0, 0, 255]);
         canvas.fill_rect(cx.saturating_sub(1), cy.saturating_sub(6), 1, 12, [0, 0, 0, 255]);
     }
+    
+    // No filter intensity UI; simple toolbar-only filters
     
 
 fn hsv_to_rgb_u8(h: f32, s: f32, v: f32) -> [u8; 3] {
@@ -347,15 +350,16 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             tool_x += tool_size + tool_gap;
         }
         
-        // File operations in toolbar
-        let file_x = canvas.width.saturating_sub(150);
+        // File operations + filters in toolbar
+        let file_x = canvas.width.saturating_sub(180);
         if x >= file_x && x < canvas.width {
             let rel_x = x - file_x;
             if rel_x < 24 { return Some(PanelAction::FileImport); }
             else if rel_x < 54 { return Some(PanelAction::FileExport); }
             else if rel_x < 84 { return Some(PanelAction::FileSave); }
-            else if rel_x < 114 { return Some(PanelAction::FileOpen); }
+            else if rel_x < 114 { return Some(PanelAction::FilterBrightness); }
             else if rel_x < 144 { return Some(PanelAction::FilterInvert); }
+            else if rel_x < 174 { return Some(PanelAction::FilterGrayscale); }
         }
 
         // Brush size slider
@@ -422,6 +426,7 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
         let v = 1.0 - (y - sv_y) as f32 / sv_h as f32;
         return Some(PanelAction::PickerSV(s, v));
     }
+    
     None
 }
 
@@ -536,7 +541,6 @@ enum PanelAction {
     SizeValue(f32),
     CanvasSmaller,
     CanvasLarger,
-    Brightness(f32),
     FileImport,
     FileExport,
     FileSave,
@@ -573,6 +577,7 @@ fn handle_panel_action(
             }
         }
         PanelAction::SizeValue(v) => input.set_brush_radius(v, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+        // No filter intensity sliders; filters are applied from toolbar buttons
         PanelAction::CanvasSmaller => {
             let new_w = (window_size.width.max(1) as f32 * 0.75).round() as u32;
             let new_h = (window_size.height.max(1) as f32 * 0.75).round() as u32;
@@ -589,10 +594,7 @@ fn handle_panel_action(
             *canvas = Canvas::new(window_size.width.max(1), window_size.height.max(1));
             window.request_redraw();
         }
-        PanelAction::Brightness(value) => {
-            input.set_brightness(value, BRIGHT_MIN, BRIGHT_MAX);
-            window.request_redraw();
-        }
+        // No brightness slider action; brightness filter is applied via toolbar button
         PanelAction::FileImport => {
             match io::select_image_file() {
                 Ok(path) => {
@@ -682,11 +684,10 @@ fn handle_panel_action(
             println!("✓ Applied Grayscale filter");
         }
         PanelAction::FilterBrightness => {
-            // Apply brightness +30, contrast +20
             canvas.filter_brightness_contrast(30.0, 20.0);
             history.push(canvas);
             window.request_redraw();
-            println!("✓ Applied Brightness/Contrast filter");
+            println!("✓ Applied Brightness filter");
         }
         PanelAction::FilterBlur => {
             canvas.filter_blur(2);
@@ -1037,9 +1038,7 @@ fn main() {
                                 if state == ElementState::Pressed {
                                     if let Some(pos) = input.last_pos {
                                         if let Some(action) = panel_hit_test(pos, c) {
-                                            if matches!(action, PanelAction::Brightness(_)) {
-                                                input.set_slider_drag(Some(SliderDrag::Brightness));
-                                            } else if matches!(action, PanelAction::SizeValue(_)) {
+                                            if matches!(action, PanelAction::SizeValue(_)) {
                                                 input.set_slider_drag(Some(SliderDrag::Size));
                                             } else if matches!(action, PanelAction::PickerHue(_)) {
                                                 input.set_color_drag(Some(input::ColorPickerDrag::Hue));
