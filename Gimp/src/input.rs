@@ -6,6 +6,7 @@ pub struct InputState {
     pub brush: Brush,
     pub base_color: [u8; 4],
     pub brightness: f32,
+    pub slider_dragging: bool,
 }
 
 impl InputState {
@@ -16,6 +17,7 @@ impl InputState {
             base_color: brush.color,
             brightness: 1.0,
             brush,
+            slider_dragging: false,
         }
     }
 
@@ -42,6 +44,13 @@ impl InputState {
     pub fn adjust_brightness(&mut self, delta: f32, min: f32, max: f32) {
         self.brightness = (self.brightness + delta).clamp(min, max);
         self.apply_brightness();
+    }
+
+    pub fn set_slider_drag(&mut self, active: bool) {
+        self.slider_dragging = active;
+        if !active {
+            self.last_pos = None;
+        }
     }
 
     fn apply_brightness(&mut self) {

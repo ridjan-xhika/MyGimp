@@ -29,6 +29,7 @@ const PANEL_WIDTH: u32 = 88;
 const UI_MARGIN: u32 = 6;
 const UI_BUTTON_H: u32 = 20;
 const UI_GAP: u32 = 6;
+const SLIDER_H: u32 = 8;
 const PALETTE: [[u8; 4]; 8] = [
     [0, 0, 0, 255],       // Black
     [255, 0, 0, 255],     // Red
@@ -79,18 +80,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     let large_color = [120, 120, 120, 255];
     canvas.fill_rect(x, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, small_color);
     canvas.fill_rect(x + w / 2 + UI_GAP / 2, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, large_color);
-    y += UI_BUTTON_H + UI_GAP;
 
     // Brightness slider area
-    let slider_h = UI_BUTTON_H * 2;
     let slider_track_color = [200, 200, 200, 255];
-    canvas.fill_rect(x, y, w, slider_h, slider_track_color);
-    let knob_h = 6;
-    let t = ((brightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)).clamp(0.0, 1.0);
-    let knob_y = y + ((1.0 - t) * (slider_h - knob_h) as f32).round() as u32;
+    let (sx, sy, sw, _) = slider_rect();
+    canvas.fill_rect(sx, sy, sw, SLIDER_H, slider_track_color);
     let knob_color = [60, 60, 60, 255];
-    canvas.fill_rect(x + 2, knob_y + 2, w - 4, knob_h, knob_color);
-    y += slider_h + UI_GAP;
+    let knob_w: u32 = 12;
+    let t = ((brightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)).clamp(0.0, 1.0);
+    let knob_x = sx + ((t * (sw.saturating_sub(knob_w)).max(0) as f32).round() as u32);
+    canvas.fill_rect(knob_x, sy, knob_w.min(sw), SLIDER_H, knob_color);
+    y = sy + SLIDER_H + UI_GAP;
 
     // Brush preview bar
     let preview_w = (brush.radius * 2.0).min(w as f32) as u32;
@@ -140,17 +140,31 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             return Some(PanelAction::CanvasLarger);
         }
     }
-    current_y += UI_BUTTON_H + UI_GAP;
-
     // Brightness slider
-    let slider_h = UI_BUTTON_H * 2;
-    if y >= current_y && y < current_y + slider_h {
-        let rel = (y - current_y) as f32 / slider_h as f32;
-        let value = BRIGHT_MIN + (1.0 - rel.clamp(0.0, 1.0)) * (BRIGHT_MAX - BRIGHT_MIN);
+    let (sx, sy, sw, sh) = slider_rect();
+    if y >= sy && y < sy + sh && x >= sx && x < sx + sw {
+        let value = brightness_from_x(x as f32);
         return Some(PanelAction::Brightness(value));
     }
 
     None
+}
+
+fn slider_rect() -> (u32, u32, u32, u32) {
+    let mut y = UI_MARGIN;
+    y += (UI_BUTTON_H + UI_GAP) * PALETTE.len() as u32; // palette rows
+    y += UI_BUTTON_H + UI_GAP; // size buttons
+    y += UI_BUTTON_H + UI_GAP; // canvas resize
+    let x = UI_MARGIN;
+    let w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
+    (x, y, w, SLIDER_H)
+}
+
+fn brightness_from_x(x: f32) -> f32 {
+    let (sx, _, sw, _) = slider_rect();
+    let width = (sw as f32 - 1.0).max(1.0);
+    let t = ((x - sx as f32) / width).clamp(0.0, 1.0);
+    BRIGHT_MIN + t * (BRIGHT_MAX - BRIGHT_MIN)
 }
 
 enum PanelAction {
@@ -278,6 +292,9 @@ fn main() {
                                 if state == ElementState::Pressed {
                                     if let Some(pos) = input.last_pos {
                                         if let Some(action) = panel_hit_test(pos, c) {
+                                            if matches!(action, PanelAction::Brightness(_)) {
+                                                input.set_slider_drag(true);
+                                            }
                                             handle_panel_action(action, &mut input, &mut window_size, g, c, w);
                                             input.stop_drawing();
                                             return;
@@ -287,6 +304,7 @@ fn main() {
                                         }
                                     }
                                 } else {
+                                    input.set_slider_drag(false);
                                     input.stop_drawing();
                                 }
                             }
@@ -294,6 +312,12 @@ fn main() {
                                 if let Some(p) = window_to_canvas(position, window_size, c) {
                                     let prev = input.last_pos;
                                     input.last_pos = Some(p);
+                                    if input.slider_dragging {
+                                        let value = brightness_from_x(p.0);
+                                        input.set_brightness(value, BRIGHT_MIN, BRIGHT_MAX);
+                                        w.request_redraw();
+                                        return;
+                                    }
                                     if input.drawing {
                                         if p.0 < PANEL_WIDTH as f32 {
                                             input.stop_drawing();
