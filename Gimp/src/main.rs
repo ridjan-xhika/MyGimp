@@ -1053,7 +1053,7 @@ fn main() {
                                         if pos.0 >= PANEL_WIDTH as f32 {
                                             // Handle different tools
                                             match input.current_tool {
-                                                input::Tool::Brush | input::Tool::Eraser => {
+                                                input::Tool::Brush | input::Tool::Eraser | input::Tool::Blur => {
                                                     input.drawing = true;
                                                 }
                                                 input::Tool::FillBucket => {
@@ -1180,6 +1180,22 @@ fn main() {
                                                                 let ix = last.0 + (p.0 - last.0) * t;
                                                                 let iy = last.1 + (p.1 - last.1) * t;
                                                                 c.erase_circle(ix, iy, input.brush.radius);
+                                                            }
+                                                        }
+                                                        w.request_redraw();
+                                                    }
+                                                }
+                                                input::Tool::Blur => {
+                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                        c.blur_circle(p.0, p.1, input.brush.radius);
+                                                        if let Some(last) = prev {
+                                                            let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
+                                                            let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
+                                                            for i in 0..=steps {
+                                                                let t = i as f32 / steps as f32;
+                                                                let ix = last.0 + (p.0 - last.0) * t;
+                                                                let iy = last.1 + (p.1 - last.1) * t;
+                                                                c.blur_circle(ix, iy, input.brush.radius);
                                                             }
                                                         }
                                                         w.request_redraw();
