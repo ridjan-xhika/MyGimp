@@ -191,9 +191,31 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
         return Some(PanelAction::Brightness(value));
     }
 
-    // File operation buttons
+    // Tool selection buttons
     let preview_y = bright_geom.row_y + bright_geom.row_h + UI_GAP + UI_BUTTON_H / 2 + UI_GAP;
-    let file_buttons_y = preview_y;
+    let tools_y = preview_y;
+    let tool_btn_h = 18;
+    let tool_gap = 3;
+    
+    let tools = [
+        input::Tool::Brush,
+        input::Tool::Eraser,
+        input::Tool::FillBucket,
+        input::Tool::ColorPicker,
+        input::Tool::RectSelect,
+        input::Tool::Move,
+    ];
+    
+    let mut tool_y = tools_y;
+    for tool in &tools {
+        if y >= tool_y && y < tool_y + tool_btn_h && x >= UI_MARGIN && x < PANEL_WIDTH - UI_MARGIN {
+            return Some(PanelAction::Tool(*tool));
+        }
+        tool_y += tool_btn_h + tool_gap;
+    }
+
+    // File operation buttons
+    let file_buttons_y = tool_y + UI_GAP;
     let btn_w = (full_w - UI_GAP) / 2;
     
     // Import / Export row
@@ -515,6 +537,11 @@ fn handle_panel_action(
                 }
                 Err(e) => eprintln!("✗ {}", e),
             }
+        }
+        PanelAction::Tool(tool) => {
+            input.current_tool = tool;
+            println!("Tool: {:?}", tool);
+            window.request_redraw();
         }
     }
 }
