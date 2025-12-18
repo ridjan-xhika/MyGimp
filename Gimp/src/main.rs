@@ -63,14 +63,14 @@ fn window_to_canvas(
     Some((x.clamp(0.0, (canvas.width - 1) as f32), y.clamp(0.0, (canvas.height - 1) as f32)))
 }
 
-fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputState) {
+fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputState, icons: &crate::icons::IconCache) {
     // Top toolbar background (dark)
     canvas.fill_rect(0, 0, canvas.width, TOOLBAR_HEIGHT, [50, 50, 50, 255]);
     
     // Left side panel background (light gray)
     canvas.fill_rect(0, TOOLBAR_HEIGHT, PANEL_WIDTH, canvas.height - TOOLBAR_HEIGHT, [220, 220, 220, 255]);
     
-    // Toolbar: Tools (icons would go here)
+    // Toolbar: Tool buttons with icons
     let tool_gap = 8;
     let tool_size = 48;
     let mut tool_x = 8;
@@ -78,14 +78,14 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     
     // Tool buttons with selection highlight
     let tools = [
-        (input::Tool::Brush, "B"),
-        (input::Tool::Eraser, "E"),
-        (input::Tool::FillBucket, "F"),
-        (input::Tool::ColorPicker, "P"),
-        (input::Tool::Move, "M"),
+        (input::Tool::Brush, &icons.brush),
+        (input::Tool::Eraser, &icons.eraser),
+        (input::Tool::FillBucket, &icons.fill),
+        (input::Tool::ColorPicker, &icons.picker),
+        (input::Tool::Move, &icons.move_tool),
     ];
     
-    for (tool, label) in &tools {
+    for (tool, icon) in &tools {
         let is_active = input.current_tool == *tool;
         let btn_color = if is_active { [100, 150, 255, 255] } else { [80, 80, 80, 255] };
         let border_color = [200, 200, 200, 255];
@@ -95,23 +95,34 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         canvas.fill_rect(tool_x, tool_y, tool_size, 2, border_color);
         canvas.fill_rect(tool_x, tool_y, 2, tool_size, border_color);
         
-        draw_button_text(canvas, tool_x + 18, tool_y + 18, label);
+        // Draw icon centered in the button
+        if !icon.pixels.is_empty() {
+            let icon_display_size = 32;
+            let icon_x = tool_x + (tool_size - icon_display_size) / 2;
+            let icon_y = tool_y + (tool_size - icon_display_size) / 2;
+            draw_icon(canvas, icon, icon_x, icon_y, icon_display_size);
+        }
         tool_x += tool_size + tool_gap;
     }
     
-    // Right side of toolbar: File operations
+    // Right side of toolbar: File operations with icons
     let file_x = canvas.width.saturating_sub(150);
     let file_btns = [
-        (file_x, "I"),           // Import
-        (file_x + 30, "E"),      // Export
-        (file_x + 60, "S"),      // Save
-        (file_x + 90, "O"),      // Open
-        (file_x + 120, "U"),     // Undo
+        (file_x, &icons.import),           // Import
+        (file_x + 30, &icons.export),      // Export
+        (file_x + 60, &icons.save),        // Save
+        (file_x + 90, &icons.brightness),  // Brightness (placeholder for Open)
+        (file_x + 120, &icons.invert),     // Undo (using invert as placeholder)
     ];
     
-    for (x, label) in &file_btns {
+    for (x, icon) in &file_btns {
         canvas.fill_rect(*x, tool_y, 24, tool_size, [100, 100, 100, 255]);
-        draw_button_text(canvas, *x + 6, tool_y + 18, label);
+        if !icon.pixels.is_empty() {
+            let icon_display_size = 20;
+            let icon_x_pos = *x + (24 - icon_display_size) / 2;
+            let icon_y_pos = tool_y + (tool_size - icon_display_size) / 2;
+            draw_icon(canvas, icon, icon_x_pos, icon_y_pos, icon_display_size);
+        }
     }
     
     // Left panel: Colors, Size, Filters
@@ -136,141 +147,67 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     canvas.fill_rect(preview_x, size_y + 16, preview_w.max(4), 12, brush.color);
 }
 
-    
-    // Bright / Blur row
-    let filter_row2_y = filter_y + UI_BUTTON_H + UI_GAP;
-    canvas.fill_rect(x, filter_row2_y, btn_w, UI_BUTTON_H, filter_color);
-    canvas.fill_rect(x + btn_w + UI_GAP, filter_row2_y, btn_w, UI_BUTTON_H, filter_color);
-    draw_button_text(canvas, x + 4, filter_row2_y + 6, "Bright");
-    draw_button_text(canvas, x + btn_w + UI_GAP + 4, filter_row2_y + 6, "Blur");
-    
-    // Pan controls (if large image is loaded)
-    if let Some((img_w, img_h)) = canvas.loaded_image_size {
-        if img_w > canvas.width || img_h > canvas.height {
-            // Show image info
-            let info_y = filter_row2_y + UI_BUTTON_H + UI_GAP;
-            draw_button_text(canvas, x + 2, info_y, &format!("{}x{}", img_w, img_h));
-        }
-    }
-}
-
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     if pos.0 < 0.0 || pos.1 < 0.0 {
         return None;
     }
     let x = pos.0 as u32;
     let y = pos.1 as u32;
-    if x >= PANEL_WIDTH || y >= canvas.height {
+    
+    // Toolbar hit test
+    if y < TOOLBAR_HEIGHT {
+        // Tools
+        let tool_gap = 8;
+        let tool_size = 48;
+        let mut tool_x = 8;
+        let tool_y = 8;
+        
+        let tools = [
+            input::Tool::Brush,
+            input::Tool::Eraser,
+            input::Tool::FillBucket,
+            input::Tool::ColorPicker,
+            input::Tool::Move,
+        ];
+        
+        for tool in &tools {
+            if x >= tool_x && x < tool_x + tool_size && y >= tool_y && y < tool_y + tool_size {
+                return Some(PanelAction::Tool(*tool));
+            }
+            tool_x += tool_size + tool_gap;
+        }
+        
+        // File operations in toolbar
+        let file_x = canvas.width.saturating_sub(150);
+        if x >= file_x && x < canvas.width {
+            let rel_x = x - file_x;
+            if rel_x < 24 { return Some(PanelAction::FileImport); }
+            else if rel_x < 54 { return Some(PanelAction::FileExport); }
+            else if rel_x < 84 { return Some(PanelAction::FileSave); }
+            else if rel_x < 114 { return Some(PanelAction::FileOpen); }
+            else { return Some(PanelAction::FilterInvert); } // Undo for now
+        }
+        
         return None;
     }
-
-    let mut current_y = UI_MARGIN;
-    let full_w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
-
-    // Palette buttons
+    
+    // Side panel hit test
+    if x >= PANEL_WIDTH {
+        return None;
+    }
+    
+    let panel_x = 8;
+    let panel_y = TOOLBAR_HEIGHT + 8;
+    let mut col_y = panel_y;
+    
+    // Color palette
     for (i, _) in PALETTE.iter().enumerate() {
-        if y >= current_y && y < current_y + UI_BUTTON_H {
+        if i >= 4 { break; }
+        if y >= col_y && y < col_y + 20 && x >= panel_x && x < panel_x + PANEL_WIDTH - 16 {
             return Some(PanelAction::Color(i as u8));
         }
-        current_y += UI_BUTTON_H + UI_GAP;
+        col_y += 24;
     }
-
-    // Size slider
-    let size_geom = size_slider_geom();
-    if y >= size_geom.row_y && y < size_geom.row_y + size_geom.row_h && x >= size_geom.track_x && x < size_geom.track_x + size_geom.track_w {
-        let value = slider_value_from_x(x as f32, size_geom, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
-        return Some(PanelAction::SizeValue(value));
-    }
-    current_y = size_geom.row_y + size_geom.row_h + UI_GAP;
-
-    // Canvas resize buttons
-    let half_w = full_w / 2 - UI_GAP / 2;
-    if y >= current_y && y < current_y + UI_BUTTON_H {
-        let rel_x = x.saturating_sub(UI_MARGIN);
-        if rel_x < half_w {
-            return Some(PanelAction::CanvasSmaller);
-        } else if rel_x > half_w + UI_GAP {
-            return Some(PanelAction::CanvasLarger);
-        }
-    }
-    // Brightness slider
-    let bright_geom = brightness_slider_geom();
-    if y >= bright_geom.row_y && y < bright_geom.row_y + bright_geom.row_h && x >= bright_geom.track_x && x < bright_geom.track_x + bright_geom.track_w {
-        let value = slider_value_from_x(x as f32, bright_geom, BRIGHT_MIN, BRIGHT_MAX);
-        return Some(PanelAction::Brightness(value));
-    }
-
-    // Tool selection buttons
-    let preview_y = bright_geom.row_y + bright_geom.row_h + UI_GAP + UI_BUTTON_H / 2 + UI_GAP;
-    let tools_y = preview_y;
-    let tool_btn_h = 24;
-    let tool_gap = 4;
-    
-    let tools = [
-        input::Tool::Brush,
-        input::Tool::Eraser,
-        input::Tool::FillBucket,
-        input::Tool::ColorPicker,
-        input::Tool::Move,
-    ];
-    
-    let mut tool_y = tools_y;
-    for tool in &tools {
-        if y >= tool_y && y < tool_y + tool_btn_h && x >= UI_MARGIN && x < PANEL_WIDTH - UI_MARGIN {
-            return Some(PanelAction::Tool(*tool));
-        }
-        tool_y += tool_btn_h + tool_gap;
-    }
-
-    // File operation buttons
-    let file_buttons_y = tool_y + UI_GAP;
-    let btn_w = (full_w - UI_GAP) / 2;
-    
-    // Import / Export row
-    if y >= file_buttons_y && y < file_buttons_y + UI_BUTTON_H {
-        let rel_x = x.saturating_sub(UI_MARGIN);
-        if rel_x < btn_w {
-            return Some(PanelAction::FileImport);
-        } else if rel_x > btn_w + UI_GAP {
-            return Some(PanelAction::FileExport);
-        }
-    }
-    
-    // Save / Open row
-    let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
-    if y >= second_row_y && y < second_row_y + UI_BUTTON_H {
-        let rel_x = x.saturating_sub(UI_MARGIN);
-        if rel_x < btn_w {
-            return Some(PanelAction::FileSave);
-        } else if rel_x > btn_w + UI_GAP {
-            return Some(PanelAction::FileOpen);
-        }
-    }
-    
-    // Filter buttons
-    let filter_y = second_row_y + UI_BUTTON_H + UI_GAP * 2;
-    
-    // Invert / Grayscale row
-    if y >= filter_y && y < filter_y + UI_BUTTON_H {
-        let rel_x = x.saturating_sub(UI_MARGIN);
-        if rel_x < btn_w {
-            return Some(PanelAction::FilterInvert);
-        } else if rel_x > btn_w + UI_GAP {
-            return Some(PanelAction::FilterGrayscale);
-        }
-    }
-    
-    // Bright / Blur row
-    let filter_row2_y = filter_y + UI_BUTTON_H + UI_GAP;
-    if y >= filter_row2_y && y < filter_row2_y + UI_BUTTON_H {
-        let rel_x = x.saturating_sub(UI_MARGIN);
-        if rel_x < btn_w {
-            return Some(PanelAction::FilterBrightness);
-        } else if rel_x > btn_w + UI_GAP {
-            return Some(PanelAction::FilterBlur);
-        }
-    }
-
     None
 }
 
@@ -282,29 +219,6 @@ struct SliderGeom {
     track_x: u32,
     track_w: u32,
 }
-
-fn size_slider_geom() -> SliderGeom {
-    let row_x = UI_MARGIN;
-    let row_w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
-    let row_y = UI_MARGIN + (UI_BUTTON_H + UI_GAP) * PALETTE.len() as u32;
-    slider_geom(row_x, row_y, row_w)
-}
-
-fn brightness_slider_geom() -> SliderGeom {
-    let row_x = UI_MARGIN;
-    let row_w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
-    let row_y = UI_MARGIN
-        + (UI_BUTTON_H + UI_GAP) * PALETTE.len() as u32
-        + (SLIDER_H + UI_GAP)
-        + UI_BUTTON_H
-        + UI_GAP;
-    slider_geom(row_x, row_y, row_w)
-}
-
-fn slider_geom(row_x: u32, row_y: u32, row_w: u32) -> SliderGeom {
-    let row_h = SLIDER_H;
-    let track_x = row_x + SLIDER_LABEL_W + SLIDER_ICON_W;
-    let track_w = row_w.saturating_sub(SLIDER_LABEL_W + SLIDER_ICON_W * 2).max(1);
     SliderGeom {
         row_x,
         row_y,
@@ -326,6 +240,39 @@ fn size_value_from_x(x: f32) -> f32 {
 
 fn brightness_value_from_x(x: f32) -> f32 {
     slider_value_from_x(x, brightness_slider_geom(), BRIGHT_MIN, BRIGHT_MAX)
+}
+
+fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, size: u32) {
+    if icon.pixels.is_empty() || icon.width == 0 || icon.height == 0 {
+        return;
+    }
+    
+    let scale_x = size as f32 / icon.width as f32;
+    let scale_y = size as f32 / icon.height as f32;
+    
+    for iy in 0..icon.height.min(size) {
+        for ix in 0..icon.width.min(size) {
+            let pixel_idx = ((iy * icon.width + ix) * 4) as usize;
+            if pixel_idx + 3 < icon.pixels.len() {
+                let r = icon.pixels[pixel_idx];
+                let g = icon.pixels[pixel_idx + 1];
+                let b = icon.pixels[pixel_idx + 2];
+                let a = icon.pixels[pixel_idx + 3];
+                
+                // Only draw if not fully transparent
+                if a > 128 {
+                    let screen_x = x + ((ix as f32 * scale_x) as u32);
+                    let screen_y = y + ((iy as f32 * scale_y) as u32);
+                    if screen_x < canvas.width && screen_y < canvas.height {
+                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4) as usize] = r;
+                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 1) as usize] = g;
+                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 2) as usize] = b;
+                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 3) as usize] = 255;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn draw_button_text(canvas: &mut Canvas, x: u32, y: u32, text: &str) {
@@ -615,6 +562,12 @@ fn main() {
         radius: BRUSH_RADIUS,
         color: BRUSH_COLOR,
     });
+    
+    // Load icons at startup
+    let icons = crate::icons::IconCache::load();
+    
+    // Initialize history
+    let mut history = History::new();
 
     event_loop
         .run(move |event, elwt| match event {
@@ -726,6 +679,29 @@ fn main() {
                                             KeyCode::Equal if !shift_pressed => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketLeft => input.adjust_brush_radius(-2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            // Undo/Redo shortcuts
+                                            KeyCode::KeyZ if ctrl_pressed && !shift_pressed => {
+                                                // Ctrl+Z: Undo
+                                                if let Some(state) = history.undo() {
+                                                    if let Some(c) = canvas.as_mut() {
+                                                        history.restore(c, state);
+                                                        c.dirty = true;
+                                                        w.request_redraw();
+                                                        println!("↶ Undo");
+                                                    }
+                                                }
+                                            }
+                                            KeyCode::KeyZ if ctrl_pressed && shift_pressed => {
+                                                // Ctrl+Shift+Z: Redo
+                                                if let Some(state) = history.redo() {
+                                                    if let Some(c) = canvas.as_mut() {
+                                                        history.restore(c, state);
+                                                        c.dirty = true;
+                                                        w.request_redraw();
+                                                        println!("↷ Redo");
+                                                    }
+                                                }
+                                            }
                                             // Filter shortcuts
                                             KeyCode::KeyG if ctrl_pressed => {
                                                 // Ctrl+G: Grayscale
@@ -918,6 +894,7 @@ fn main() {
                                                     let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
                                                     let canvas_y = pos.1 as u32;
                                                     c.flood_fill(canvas_x, canvas_y, input.brush.color);
+                                                    history.push(c);
                                                     w.request_redraw();
                                                 }
                                                 input::Tool::ColorPicker => {
@@ -936,10 +913,13 @@ fn main() {
                                         }
                                     }
                                 } else {
-                                    // Mouse released
+                                    // Mouse released - save to history after drawing
                                     if input.current_tool == input::Tool::Move && input.drawing {
                                         // Apply move if we dragged
 
+                                    }
+                                    if input.drawing {
+                                        history.push(c);
                                     }
                                     input.set_slider_drag(None);
                                     input.stop_drawing();
@@ -1012,7 +992,7 @@ fn main() {
                                 }
                             }
                             WindowEvent::RedrawRequested => {
-                                draw_ui(c, &input.brush, input.brightness, &input);
+                                draw_ui(c, &input.brush, input.brightness, &input, &icons);
                                 
                                 if let Err(e) = g.render(c) {
                                     match e {

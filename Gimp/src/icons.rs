@@ -1,19 +1,36 @@
 use image::ImageReader;
 use std::io::Cursor;
 
+#[derive(Clone)]
+pub struct Icon {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Icon {
+    pub fn empty() -> Self {
+        Icon {
+            pixels: vec![],
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
 pub struct IconCache {
-    pub brush: Vec<u8>,
-    pub eraser: Vec<u8>,
-    pub fill: Vec<u8>,
-    pub picker: Vec<u8>,
-    pub move_tool: Vec<u8>,
-    pub import: Vec<u8>,
-    pub export: Vec<u8>,
-    pub save: Vec<u8>,
-    pub invert: Vec<u8>,
-    pub grayscale: Vec<u8>,
-    pub brightness: Vec<u8>,
-    pub blur: Vec<u8>,
+    pub brush: Icon,
+    pub eraser: Icon,
+    pub fill: Icon,
+    pub picker: Icon,
+    pub move_tool: Icon,
+    pub import: Icon,
+    pub export: Icon,
+    pub save: Icon,
+    pub invert: Icon,
+    pub grayscale: Icon,
+    pub brightness: Icon,
+    pub blur: Icon,
 }
 
 impl IconCache {
@@ -35,18 +52,24 @@ impl IconCache {
     }
 }
 
-fn load_icon(path: &str) -> Vec<u8> {
+fn load_icon(path: &str) -> Icon {
     match std::fs::read(path) {
         Ok(data) => {
             if let Ok(img) = ImageReader::new(Cursor::new(&data))
                 .and_then(|r| r.with_guessed_format())
                 .and_then(|r| r.decode())
             {
-                img.to_rgba8().into_raw()
+                let rgba = img.to_rgba8();
+                let (width, height) = rgba.dimensions();
+                Icon {
+                    pixels: rgba.into_raw(),
+                    width,
+                    height,
+                }
             } else {
-                vec![]
+                Icon::empty()
             }
         }
-        Err(_) => vec![],
+        Err(_) => Icon::empty(),
     }
 }
