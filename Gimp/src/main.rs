@@ -896,12 +896,45 @@ fn main() {
                                             input.stop_drawing();
                                             return;
                                         }
-                                        if let Some(last) = prev {
-                                            input.brush.stroke(c, last, p);
-                                        } else {
-                                            input.brush.stamp(c, p);
+                                        
+                                        match input.current_tool {
+                                            input::Tool::Brush => {
+                                                if let Some(last) = prev {
+                                                    input.brush.stroke(c, last, p);
+                                                } else {
+                                                    input.brush.stamp(c, p);
+                                                }
+                                                w.request_redraw();
+                                            }
+                                            input::Tool::Eraser => {
+                                                // Eraser is just a brush with transparent color
+                                                let mut eraser = input.brush;
+                                                eraser.color = [0, 0, 0, 0]; // Fully transparent
+                                                if let Some(last) = prev {
+                                                    eraser.stroke(c, last, p);
+                                                } else {
+                                                    eraser.stamp(c, p);
+                                                }
+                                                w.request_redraw();
+                                            }
+                                            input::Tool::RectSelect => {
+                                                let canvas_x = (p.0 - PANEL_WIDTH as f32).max(0.0) as u32;
+                                                let canvas_y = p.1 as u32;
+                                                input.selection_end = Some((canvas_x, canvas_y));
+                                                w.request_redraw();
+                                            }
+                                            input::Tool::Move => {
+                                                if let Some(last) = prev {
+                                                    let dx = ((p.0 - last.0) / c.zoom_scale) as i32;
+                                                    let dy = ((p.1 - last.1) / c.zoom_scale) as i32;
+                                                    if dx != 0 || dy != 0 {
+                                                        c.move_layer(dx, dy);
+                                                        w.request_redraw();
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
                                         }
-                                        w.request_redraw();
                                     }
                                 }
                             }
