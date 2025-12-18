@@ -83,6 +83,7 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         (input::Tool::FillBucket, &icons.fill),
         (input::Tool::ColorPicker, &icons.picker),
         (input::Tool::Move, &icons.move_tool),
+        (input::Tool::Blur, &icons.blur),
     ];
     
     for (tool, icon) in &tools {
@@ -190,8 +191,8 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         // Geometry
         let hue_x = panel_x;
         let hue_y = size_y + 36;
-        let hue_w = 12u32;
-        let hue_h = 80u32;
+        let hue_w = 14u32; // slightly wider like GIMP
+        let hue_h = 120u32; // taller for smoother gradient
         let sv_x = hue_x + hue_w + 6;
         let sv_y = hue_y;
         let sv_w = (PANEL_WIDTH - 16).saturating_sub(hue_w + 6);
@@ -199,16 +200,33 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
 
         // Draw hue bar (fast)
         draw_hue_bar_fast(canvas, hue_x, hue_y, hue_w, hue_h);
+        // Hue bar border
+        canvas.fill_rect(hue_x.saturating_sub(1), hue_y.saturating_sub(1), hue_w + 2, 1, [0, 0, 0, 255]);
+        canvas.fill_rect(hue_x.saturating_sub(1), hue_y + hue_h, hue_w + 2, 1, [0, 0, 0, 255]);
+        canvas.fill_rect(hue_x.saturating_sub(1), hue_y.saturating_sub(1), 1, hue_h + 2, [0, 0, 0, 255]);
+        canvas.fill_rect(hue_x + hue_w, hue_y.saturating_sub(1), 1, hue_h + 2, [0, 0, 0, 255]);
         // Hue indicator
         let hue_pos = (input.hue.clamp(0.0, 1.0) * hue_h as f32).round() as u32;
         canvas.fill_rect(hue_x, hue_y + hue_pos.saturating_sub(1), hue_w, 2, [255, 255, 255, 255]);
 
         // Draw SV square for current hue (fast)
         draw_sv_square_fast(canvas, sv_x, sv_y, sv_w, sv_h, input.hue);
+        // SV square border
+        canvas.fill_rect(sv_x.saturating_sub(1), sv_y.saturating_sub(1), sv_w + 2, 1, [0, 0, 0, 255]);
+        canvas.fill_rect(sv_x.saturating_sub(1), sv_y + sv_h, sv_w + 2, 1, [0, 0, 0, 255]);
+        canvas.fill_rect(sv_x.saturating_sub(1), sv_y.saturating_sub(1), 1, sv_h + 2, [0, 0, 0, 255]);
+        canvas.fill_rect(sv_x + sv_w, sv_y.saturating_sub(1), 1, sv_h + 2, [0, 0, 0, 255]);
         // SV indicator
         let sv_ix = (input.sat.clamp(0.0, 1.0) * sv_w as f32).round() as u32;
         let sv_iy = ((1.0 - input.val.clamp(0.0, 1.0)) * sv_h as f32).round() as u32;
-        canvas.fill_rect(sv_x + sv_ix.saturating_sub(1), sv_y + sv_iy.saturating_sub(1), 3, 3, [255, 255, 255, 255]);
+        // Crosshair indicator similar to GIMP
+        let cx = sv_x + sv_ix;
+        let cy = sv_y + sv_iy;
+        // small cross in white with black shadow for visibility
+        canvas.fill_rect(cx.saturating_sub(6), cy, 12, 1, [255, 255, 255, 255]);
+        canvas.fill_rect(cx, cy.saturating_sub(6), 1, 12, [255, 255, 255, 255]);
+        canvas.fill_rect(cx.saturating_sub(6), cy.saturating_sub(1), 12, 1, [0, 0, 0, 255]);
+        canvas.fill_rect(cx.saturating_sub(1), cy.saturating_sub(6), 1, 12, [0, 0, 0, 255]);
     }
     
 
@@ -319,6 +337,7 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             input::Tool::FillBucket,
             input::Tool::ColorPicker,
             input::Tool::Move,
+            input::Tool::Blur,
         ];
         
         for tool in &tools {
@@ -359,7 +378,6 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     
     let panel_x = 8;
     let panel_y = TOOLBAR_HEIGHT + 8;
-    let mut col_y = panel_y;
     
     // Foreground swatch click
     if y >= panel_y && y < panel_y + 24 && x >= panel_x && x < panel_x + 24 {
@@ -382,12 +400,13 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     }
 
     // Color picker interactions
-    // Geometry mirrored from draw_ui()
-    let size_y = panel_y + 30 + 4 + 4 + 4; // approximate anchor below palette
+    // Geometry mirrored from draw_ui() EXACTLY
+    // Palette rows: start at panel_y + 30, 4 rows, each adds 24
+    let size_y = (panel_y + 30) + 24 * 4 + 4; // col_y after palette + 4
     let hue_x = panel_x;
     let hue_y = size_y + 36;
-    let hue_w = 12u32;
-    let hue_h = 80u32;
+    let hue_w = 14u32;
+    let hue_h = 120u32;
     let sv_x = hue_x + hue_w + 6;
     let sv_y = hue_y;
     let sv_w = (PANEL_WIDTH - 16).saturating_sub(hue_w + 6);
@@ -406,20 +425,20 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     None
 }
 
-fn slider_value_from_x(x: f32, geom: (u32, u32, u32, u32), min: f32, max: f32) -> f32 {
-    // Legacy function - kept for compatibility but not used
-    let (_, _, _, track_w) = geom;
-    let travel = (track_w as f32 - SLIDER_KNOB_W as f32).max(1.0);
-    let t = ((x - 0.0) / travel).clamp(0.0, 1.0);
-    min + t * (max - min)
-}
-
 fn size_value_from_x(x: f32) -> f32 {
-    slider_value_from_x(x, (0,0,0,0), BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX)
+    // Map canvas X to slider percentage using actual slider geometry
+    let slider_x = 8.0;
+    let slider_w = 280.0;
+    let t = ((x - slider_x) / slider_w).clamp(0.0, 1.0);
+    BRUSH_RADIUS_MIN + t * (BRUSH_RADIUS_MAX - BRUSH_RADIUS_MIN)
 }
 
 fn brightness_value_from_x(x: f32) -> f32 {
-    slider_value_from_x(x, (0,0,0,100), BRIGHT_MIN, BRIGHT_MAX)
+    // Map canvas X to brightness using same slider geometry for consistency
+    let slider_x = 8.0;
+    let slider_w = 280.0;
+    let t = ((x - slider_x) / slider_w).clamp(0.0, 1.0);
+    BRIGHT_MIN + t * (BRIGHT_MAX - BRIGHT_MIN)
 }
 
 fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, size: u32) {
@@ -546,7 +565,11 @@ fn handle_panel_action(
     match action {
         PanelAction::Color(idx) => {
             if let Some(color) = PALETTE.get(idx as usize) {
-                input.set_brush_color(*color);
+                if input.active_is_foreground {
+                    input.set_brush_color(*color);
+                } else {
+                    input.set_background_color(*color);
+                }
             }
         }
         PanelAction::SizeValue(v) => input.set_brush_radius(v, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
@@ -673,6 +696,14 @@ fn handle_panel_action(
         }
         PanelAction::ToggleColorPicker => {
             input.toggle_color_picker();
+            window.request_redraw();
+        }
+        PanelAction::OpenColorPickerForeground => {
+            input.open_color_picker_foreground();
+            window.request_redraw();
+        }
+        PanelAction::OpenColorPickerBackground => {
+            input.open_color_picker_background();
             window.request_redraw();
         }
         PanelAction::PickerHue(h) => {
@@ -859,29 +890,25 @@ fn main() {
                                             // Pan/zoom controls
                                             KeyCode::ArrowLeft => {
                                                 if c.loaded_image_size.is_some() {
-                                                    c.pan_offset.0 += 50;
-                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    c.pan_image(50, 0);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowRight => {
                                                 if c.loaded_image_size.is_some() {
-                                                    c.pan_offset.0 -= 50;
-                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    c.pan_image(-50, 0);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowUp => {
                                                 if c.loaded_image_size.is_some() {
-                                                    c.pan_offset.1 += 50;
-                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    c.pan_image(0, 50);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowDown => {
                                                 if c.loaded_image_size.is_some() {
-                                                    c.pan_offset.1 -= 50;
-                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    c.pan_image(0, -50);
                                                     w.request_redraw();
                                                 }
                                             }
@@ -1014,6 +1041,10 @@ fn main() {
                                                 input.set_slider_drag(Some(SliderDrag::Brightness));
                                             } else if matches!(action, PanelAction::SizeValue(_)) {
                                                 input.set_slider_drag(Some(SliderDrag::Size));
+                                            } else if matches!(action, PanelAction::PickerHue(_)) {
+                                                input.set_color_drag(Some(input::ColorPickerDrag::Hue));
+                                            } else if matches!(action, PanelAction::PickerSV(_, _)) {
+                                                input.set_color_drag(Some(input::ColorPickerDrag::SV));
                                             }
                                             handle_panel_action(action, &mut input, &mut window_size, g, c, w, &mut history);
                                             input.stop_drawing();
@@ -1039,7 +1070,11 @@ fn main() {
                                                         let canvas_x = pos.0 as u32;
                                                         let canvas_y = pos.1 as u32;
                                                         if let Some(color) = c.get_pixel(canvas_x, canvas_y) {
-                                                            input.set_brush_color(color);
+                                                            if input.active_is_foreground {
+                                                                input.set_brush_color(color);
+                                                            } else {
+                                                                input.set_background_color(color);
+                                                            }
                                                             println!("Picked color: {:?}", color);
                                                         }
                                                         w.request_redraw();
@@ -1061,6 +1096,7 @@ fn main() {
                                         history.push(c);
                                     }
                                     input.set_slider_drag(None);
+                                    input.set_color_drag(None);
                                     input.stop_drawing();
                                     input.selection_start = None;
                                     input.selection_end = None;
@@ -1079,6 +1115,37 @@ fn main() {
                                             SliderDrag::Size => {
                                                 let value = size_value_from_x(p.0);
                                                 input.set_brush_radius(value, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
+                                            }
+                                        }
+                                        w.request_redraw();
+                                        return;
+                                    }
+                                    if let Some(cp_drag) = input.color_dragging {
+                                        // Geometry: same as panel_hit_test/draw_ui
+                                        let panel_x = 8.0;
+                                        let panel_y = TOOLBAR_HEIGHT as f32 + 8.0;
+                                        let size_y = (panel_y + 30.0) + 24.0 * 4.0 + 4.0;
+                                        let hue_x = panel_x;
+                                        let hue_y = size_y + 36.0;
+                                        let hue_w = 14.0;
+                                        let hue_h = 120.0;
+                                        let sv_x = hue_x + hue_w + 6.0;
+                                        let sv_y = hue_y;
+                                        let sv_w = (PANEL_WIDTH as f32 - 16.0) - (hue_w + 6.0);
+                                        let sv_h = sv_w;
+                                        match cp_drag {
+                                            input::ColorPickerDrag::Hue => {
+                                                // Clamp to hue bar and update hue
+                                                let yy = p.1.clamp(hue_y, hue_y + hue_h);
+                                                let hh = (yy - hue_y) / hue_h;
+                                                input.set_hsv(hh, input.sat, input.val);
+                                            }
+                                            input::ColorPickerDrag::SV => {
+                                                let xx = p.0.clamp(sv_x, sv_x + sv_w);
+                                                let yy = p.1.clamp(sv_y, sv_y + sv_h);
+                                                let s = (xx - sv_x) / sv_w;
+                                                let v = 1.0 - (yy - sv_y) / sv_h;
+                                                input.set_hsv(input.hue, s, v);
                                             }
                                         }
                                         w.request_redraw();
@@ -1123,7 +1190,7 @@ fn main() {
                                                     let dx = ((p.0 - last.0) / c.zoom_scale) as i32;
                                                     let dy = ((p.1 - last.1) / c.zoom_scale) as i32;
                                                     if dx != 0 || dy != 0 {
-                                                        c.move_layer(dx, dy);
+                                                        c.pan_image(dx, dy);
                                                         w.request_redraw();
                                                     }
                                                 }

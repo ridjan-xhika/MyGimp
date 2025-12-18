@@ -13,6 +13,13 @@ pub enum Tool {
     FillBucket,
     ColorPicker,
     Move,
+    Blur,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ColorPickerDrag {
+    Hue,
+    SV,
 }
 
 pub struct InputState {
@@ -35,6 +42,7 @@ pub struct InputState {
     pub sat: f32, // 0..1
     pub val: f32, // 0..1
     pub active_is_foreground: bool,
+    pub color_dragging: Option<ColorPickerDrag>,
 }
 
 impl InputState {
@@ -58,6 +66,7 @@ impl InputState {
             sat: 1.0,
             val: 1.0,
             active_is_foreground: true,
+            color_dragging: None,
         }
     }
 
@@ -96,6 +105,13 @@ impl InputState {
 
     pub fn set_slider_drag(&mut self, target: Option<SliderDrag>) {
         self.slider_dragging = target;
+        if target.is_none() {
+            self.last_pos = None;
+        }
+    }
+
+    pub fn set_color_drag(&mut self, target: Option<ColorPickerDrag>) {
+        self.color_dragging = target;
         if target.is_none() {
             self.last_pos = None;
         }

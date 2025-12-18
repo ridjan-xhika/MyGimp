@@ -421,61 +421,39 @@ impl Canvas {
         self.dirty = true;
     }
     
-    /// Move/translate the drawing layer by offset
-    pub fn move_layer(&mut self, offset_x: i32, offset_y: i32) {
+    /// Pan the image view by updating pan_offset and re-rendering
+    pub fn pan_image(&mut self, offset_x: i32, offset_y: i32) {
+        self.pan_offset.0 += offset_x;
+        self.pan_offset.1 += offset_y;
+        
         if let Some((img_w, img_h)) = self.loaded_image_size {
-            let img_stride = img_w as usize * 4;
-            let mut new_layer = vec![0u8; self.drawing_layer.len()];
-            
-            for y in 0..img_h {
-                for x in 0..img_w {
-                    let new_x = x as i32 + offset_x;
-                    let new_y = y as i32 + offset_y;
-                    
-                    if new_x >= 0 && new_x < img_w as i32 && new_y >= 0 && new_y < img_h as i32 {
-                        let src_idx = (y as usize * img_stride) + (x as usize * 4);
-                        let dst_idx = (new_y as usize * img_stride) + (new_x as usize * 4);
-                        
-                        if src_idx + 4 <= self.drawing_layer.len() && dst_idx + 4 <= new_layer.len() {
-                            new_layer[dst_idx..dst_idx + 4].copy_from_slice(&self.drawing_layer[src_idx..src_idx + 4]);
-                        }
-                    }
-                }
-            }
-            
-            self.drawing_layer = new_layer;
-            
-            // Re-render
             if let Some(img_data) = self.loaded_image_data.clone() {
-                let (offset_x, offset_y) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+                self.paste_image_with_offset(img_w, img_h, &img_data, self.pan_offset.0, self.pan_offset.1);
             }
         }
         
         self.dirty = true;
     }
     
-    /// Apply invert filter to drawing layer
+    /// Apply invert filter to all canvas pixels and loaded image
     pub fn filter_invert(&mut self) {
-        if let Some((img_w, img_h)) = self.loaded_image_size {
-            let img_stride = img_w as usize * 4;
-            for y in 0..img_h {
-                for x in 0..img_w {
-                    let idx = (y as usize * img_stride) + (x as usize * 4);
-                    if idx + 3 < self.drawing_layer.len() {
-                        // Only invert if pixel has been drawn on (has some alpha)
-                        if self.drawing_layer[idx + 3] > 0 {
-                            self.drawing_layer[idx] = 255 - self.drawing_layer[idx];
-                            self.drawing_layer[idx + 1] = 255 - self.drawing_layer[idx + 1];
-                            self.drawing_layer[idx + 2] = 255 - self.drawing_layer[idx + 2];
-                        }
-                    }
-                }
+        // Invert all pixels in the canvas display buffer
+        for i in (0..self.pixels.len()).step_by(4) {
+            if i + 3 < self.pixels.len() {
+                self.pixels[i] = 255 - self.pixels[i];          // R
+                self.pixels[i + 1] = 255 - self.pixels[i + 1];  // G
+                self.pixels[i + 2] = 255 - self.pixels[i + 2];  // B
+                // A stays the same
             }
-            // Re-render
-            if let Some(img_data) = self.loaded_image_data.clone() {
-                let (offset_x, offset_y) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+        }
+        // Also invert loaded image data if present so it stays inverted when panned
+        if let Some(ref mut img_data) = self.loaded_image_data {
+            for i in (0..img_data.len()).step_by(4) {
+                if i + 3 < img_data.len() {
+                    img_data[i] = 255 - img_data[i];            // R
+                    img_data[i + 1] = 255 - img_data[i + 1];    // G
+                    img_data[i + 2] = 255 - img_data[i + 2];    // B
+                }
             }
         }
         self.dirty = true;
@@ -605,7 +583,69 @@ impl Canvas {
         }
         self.dirty = true;
     }
-}
+
+    /// Blur a circular area at (x, y) with the given radius
+    /// Averages neighboring pixels and blends the result back
+    pub fn blur_circle(&mut self, x: f32, y: f32, radius: f32) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let r = radius.ceil() as i32;
+            let center_x = x as i32;
+            let center_y = y as i32;
+            
+            // Blur each pixel in the circle
+            for py in (center_y - r).max(0)..=(center_y + r).min(img_h as i32 - 1) {
+                for px in (center_x - r).max(0)..=(center_x + r).min(img_w as i32 - 1) {
+                    let dx = (px - center_x) as f32;
+                    let dy = (py - center_y) as f32;
+                    let dist_sq = dx * dx + dy * dy;
+                    
+                    // Only blur pixels within the radius
+                    if dist_sq <= radius * radius {
+                        let blur_radius = (radius * 0.5).max(1.0) as i32;
+                        let mut sum_r = 0u32;
+                        let mut sum_g = 0u32;
+                        let mut sum_b = 0u32;
+                        let mut sum_a = 0u32;
+                        let mut count = 0u32;
+                        
+                        // Sample nearby pixels
+                        for by in (py - blur_radius).max(0)..=(py + blur_radius).min(img_h as i32 - 1) {
+                            for bx in (px - blur_radius).max(0)..=(px + blur_radius).min(img_w as i32 - 1) {
+                                let bidx = (by as usize * img_stride) + (bx as usize * 4);
+                                if bidx + 3 < self.pixels.len() {
+                                    sum_r += self.pixels[bidx] as u32;
+                                    sum_g += self.pixels[bidx + 1] as u32;
+                                    sum_b += self.pixels[bidx + 2] as u32;
+                                    sum_a += self.pixels[bidx + 3] as u32;
+                                    count += 1;
+                                }
+                            }
+                        }
+                        
+                        if count > 0 {
+                            let avg_r = (sum_r / count) as u8;
+                            let avg_g = (sum_g / count) as u8;
+                            let avg_b = (sum_b / count) as u8;
+                            let avg_a = (sum_a / count) as u8;
+                            
+                            // Blend the blurred pixel back
+                            let idx = (py as usize * img_stride) + (px as usize * 4);
+                            if idx + 3 < self.pixels.len() {
+                                // Simple 50% blend
+                                self.pixels[idx] = ((self.pixels[idx] as u32 + avg_r as u32) / 2) as u8;
+                                self.pixels[idx + 1] = ((self.pixels[idx + 1] as u32 + avg_g as u32) / 2) as u8;
+                                self.pixels[idx + 2] = ((self.pixels[idx + 2] as u32 + avg_b as u32) / 2) as u8;
+                                self.pixels[idx + 3] = avg_a;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
 
 fn aligned_stride(width: u32) -> usize {
     let row = width as usize * 4;
