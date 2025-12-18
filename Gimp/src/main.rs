@@ -422,6 +422,7 @@ fn handle_panel_action(
     gpu: &mut Gpu,
     canvas: &mut Canvas,
     window: &winit::window::Window,
+    history: &mut History,
 ) {
     match action {
         PanelAction::Color(idx) => {
@@ -528,22 +529,26 @@ fn handle_panel_action(
         }
         PanelAction::FilterInvert => {
             canvas.filter_invert();
+            history.push(canvas);
             window.request_redraw();
             println!("✓ Applied Invert filter");
         }
         PanelAction::FilterGrayscale => {
             canvas.filter_grayscale();
+            history.push(canvas);
             window.request_redraw();
             println!("✓ Applied Grayscale filter");
         }
         PanelAction::FilterBrightness => {
             // Apply brightness +30, contrast +20
             canvas.filter_brightness_contrast(30.0, 20.0);
+            history.push(canvas);
             window.request_redraw();
             println!("✓ Applied Brightness/Contrast filter");
         }
         PanelAction::FilterBlur => {
             canvas.filter_blur(2);
+            history.push(canvas);
             window.request_redraw();
             println!("✓ Applied Blur filter");
         }
@@ -880,7 +885,7 @@ fn main() {
                                             } else if matches!(action, PanelAction::SizeValue(_)) {
                                                 input.set_slider_drag(Some(SliderDrag::Size));
                                             }
-                                            handle_panel_action(action, &mut input, &mut window_size, g, c, w);
+                                            handle_panel_action(action, &mut input, &mut window_size, g, c, w, &mut history);
                                             input.stop_drawing();
                                             return;
                                         }
