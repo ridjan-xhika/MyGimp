@@ -251,6 +251,139 @@ impl Canvas {
         }
         self.dirty = true;
     }
+    
+    /// Get pixel color at canvas coordinates (for color picker)
+    pub fn get_pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let idx = y as usize * self.stride + x as usize * 4;
+        if idx + 4 <= self.pixels.len() {
+            Some([
+                self.pixels[idx],
+                self.pixels[idx + 1],
+                self.pixels[idx + 2],
+                self.pixels[idx + 3],
+            ])
+        } else {
+            None
+        }
+    }
+    
+    /// Flood fill at canvas coordinates
+    pub fn flood_fill(&mut self, start_x: u32, start_y: u32, fill_color: [u8; 4]) {
+        if start_x >= self.width || start_y >= self.height {
+            return;
+        }
+        
+        let idx = start_y as usize * self.stride + start_x as usize * 4;
+        if idx + 4 > self.pixels.len() {
+            return;
+        }
+        
+        let target_color = [
+            self.pixels[idx],
+            self.pixels[idx + 1],
+            self.pixels[idx + 2],
+            self.pixels[idx + 3],
+        ];
+        
+        // Don't fill if already the same color
+        if target_color == fill_color {
+            return;
+        }
+        
+        let mut stack = vec![(start_x, start_y)];
+        let mut visited = vec![false; (self.width * self.height) as usize];
+        
+        while let Some((x, y)) = stack.pop() {
+            if x >= self.width || y >= self.height {
+                continue;
+            }
+            
+            let visit_idx = (y * self.width + x) as usize;
+            if visited[visit_idx] {
+                continue;
+            }
+            visited[visit_idx] = true;
+            
+            let pixel_idx = y as usize * self.stride + x as usize * 4;
+            if pixel_idx + 4 > self.pixels.len() {
+                continue;
+            }
+            
+            let current = [
+                self.pixels[pixel_idx],
+                self.pixels[pixel_idx + 1],
+                self.pixels[pixel_idx + 2],
+                self.pixels[pixel_idx + 3],
+            ];
+            
+            if current != target_color {
+                continue;
+            }
+            
+            // Fill this pixel
+            self.pixels[pixel_idx..pixel_idx + 4].copy_from_slice(&fill_color);
+            
+            // Also fill in drawing layer if we have an image
+            if let Some((img_w, img_h)) = self.loaded_image_size {
+                let (offset_x, offset_y) = self.pan_offset;
+                let img_x = ((x as f32 / self.zoom_scale) as i32) - offset_x;
+                let img_y = ((y as f32 / self.zoom_scale) as i32) - offset_y;
+                
+                if img_x >= 0 && img_x < img_w as i32 && img_y >= 0 && img_y < img_h as i32 {
+                    let img_stride = img_w as usize * 4;
+                    let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
+                    if img_idx + 4 <= self.drawing_layer.len() {
+                        self.drawing_layer[img_idx..img_idx + 4].copy_from_slice(&fill_color);
+                    }
+                }
+            }
+            
+            // Add neighbors
+            if x > 0 { stack.push((x - 1, y)); }
+            if x + 1 < self.width { stack.push((x + 1, y)); }
+            if y > 0 { stack.push((x, y - 1)); }
+            if y + 1 < self.height { stack.push((x, y + 1)); }
+        }
+        
+        self.dirty = true;
+    }
+    
+    /// Move/translate the drawing layer by offset
+    pub fn move_layer(&mut self, offset_x: i32, offset_y: i32) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let mut new_layer = vec![0u8; self.drawing_layer.len()];
+            
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let new_x = x as i32 + offset_x;
+                    let new_y = y as i32 + offset_y;
+                    
+                    if new_x >= 0 && new_x < img_w as i32 && new_y >= 0 && new_y < img_h as i32 {
+                        let src_idx = (y as usize * img_stride) + (x as usize * 4);
+                        let dst_idx = (new_y as usize * img_stride) + (new_x as usize * 4);
+                        
+                        if src_idx + 4 <= self.drawing_layer.len() && dst_idx + 4 <= new_layer.len() {
+                            new_layer[dst_idx..dst_idx + 4].copy_from_slice(&self.drawing_layer[src_idx..src_idx + 4]);
+                        }
+                    }
+                }
+            }
+            
+            self.drawing_layer = new_layer;
+            
+            // Re-render
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                let (offset_x, offset_y) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
+        
+        self.dirty = true;
+    }
 }
 
 fn aligned_stride(width: u32) -> usize {
