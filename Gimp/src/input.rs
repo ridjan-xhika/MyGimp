@@ -42,6 +42,10 @@ impl InputState {
         self.brush.radius = r;
     }
 
+    pub fn set_brush_radius(&mut self, radius: f32, min: f32, max: f32) {
+        self.brush.radius = radius.clamp(min, max);
+    }
+
     pub fn set_brightness(&mut self, value: f32, min: f32, max: f32) {
         self.brightness = value.clamp(min, max);
         self.apply_brightness();

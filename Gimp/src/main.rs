@@ -61,37 +61,35 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     // Background
     canvas.fill_rect(0, 0, PANEL_WIDTH.min(canvas.width), canvas.height, [230, 230, 230, 255]);
 
-    let mut y = UI_MARGIN;
     let x = UI_MARGIN;
     let w = (PANEL_WIDTH - UI_MARGIN * 2).max(1);
 
     // Palette buttons (more colors, smaller height)
-    for color in PALETTE {
-        canvas.fill_rect(x, y, w, UI_BUTTON_H, color);
-        y += UI_BUTTON_H + UI_GAP;
+    for (i, color) in PALETTE.iter().enumerate() {
+        let y = UI_MARGIN + i as u32 * (UI_BUTTON_H + UI_GAP);
+        canvas.fill_rect(x, y, w, UI_BUTTON_H, *color);
     }
 
     // Size slider (radius)
     let size_geom = size_slider_geom();
     draw_slider(canvas, size_geom, brush.radius, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX, 'S');
-    y = size_geom.row_y + size_geom.row_h + UI_GAP;
+    let canvas_y = size_geom.row_y + size_geom.row_h + UI_GAP;
 
     // Canvas resize buttons (small / large)
     let small_color = [200, 200, 200, 255];
     let large_color = [120, 120, 120, 255];
-    canvas.fill_rect(x, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, small_color);
-    canvas.fill_rect(x + w / 2 + UI_GAP / 2, y, w / 2 - UI_GAP / 2, UI_BUTTON_H, large_color);
-    y += UI_BUTTON_H + UI_GAP;
+    canvas.fill_rect(x, canvas_y, w / 2 - UI_GAP / 2, UI_BUTTON_H, small_color);
+    canvas.fill_rect(x + w / 2 + UI_GAP / 2, canvas_y, w / 2 - UI_GAP / 2, UI_BUTTON_H, large_color);
 
     // Brightness slider
     let bright_geom = brightness_slider_geom();
     draw_slider(canvas, bright_geom, brightness, BRIGHT_MIN, BRIGHT_MAX, 'B');
-    y = bright_geom.row_y + bright_geom.row_h + UI_GAP;
+    let preview_y = bright_geom.row_y + bright_geom.row_h + UI_GAP;
 
     // Brush preview bar
     let preview_w = (brush.radius * 2.0).min(w as f32) as u32;
     let preview_x = x + (w.saturating_sub(preview_w)) / 2;
-    canvas.fill_rect(preview_x, y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
+    canvas.fill_rect(preview_x, preview_y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
 }
 
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
@@ -147,7 +145,6 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
 struct SliderGeom {
     row_x: u32,
     row_y: u32,
-    row_w: u32,
     row_h: u32,
     track_x: u32,
     track_w: u32,
@@ -178,7 +175,6 @@ fn slider_geom(row_x: u32, row_y: u32, row_w: u32) -> SliderGeom {
     SliderGeom {
         row_x,
         row_y,
-        row_w,
         row_h,
         track_x,
         track_w,
