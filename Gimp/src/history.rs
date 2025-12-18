@@ -43,21 +43,29 @@ impl History {
         });
     }
 
-    pub fn undo(&mut self) -> Option<&HistoryState> {
+    pub fn undo(&mut self, canvas: &mut Canvas) -> bool {
         if self.current > 0 {
             self.current -= 1;
-            Some(&self.states[self.current])
+            let state = &self.states[self.current];
+            canvas.pixels = state.pixels.clone();
+            canvas.drawing_layer = state.drawing_layer.clone();
+            canvas.dirty = true;
+            true
         } else {
-            None
+            false
         }
     }
 
-    pub fn redo(&mut self) -> Option<&HistoryState> {
+    pub fn redo(&mut self, canvas: &mut Canvas) -> bool {
         if self.current + 1 < self.states.len() {
             self.current += 1;
-            Some(&self.states[self.current])
+            let state = &self.states[self.current];
+            canvas.pixels = state.pixels.clone();
+            canvas.drawing_layer = state.drawing_layer.clone();
+            canvas.dirty = true;
+            true
         } else {
-            None
+            false
         }
     }
 

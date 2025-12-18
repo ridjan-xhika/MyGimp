@@ -53,23 +53,47 @@ impl IconCache {
 }
 
 fn load_icon(path: &str) -> Icon {
-    match std::fs::read(path) {
-        Ok(data) => {
-            if let Ok(img) = ImageReader::new(Cursor::new(&data))
-                .and_then(|r| r.with_guessed_format())
-                .and_then(|r| r.decode())
-            {
-                let rgba = img.to_rgba8();
-                let (width, height) = rgba.dimensions();
-                Icon {
-                    pixels: rgba.into_raw(),
-                    width,
-                    height,
+    // Try multiple path variants
+    let paths = [
+        path.to_string(),
+        format!("Gimp/{}", path),
+        format!("./Gimp/{}", path),
+    ];
+    
+    for try_path in &paths {
+        match std::fs::read(try_path) {
+            Ok(data) => {
+                match ImageReader::new(Cursor::new(&data))
+                    .with_guessed_format()
+                {
+                    Ok(reader) => {
+                        match reader.decode() {
+                            Ok(img) => {
+                                let rgba = img.to_rgba8();
+                                let (width, height) = rgba.dimensions();
+                                eprintln!("✓ Loaded icon: {} ({} × {})", try_path, width, height);
+                                return Icon {
+                                    pixels: rgba.into_raw(),
+                                    width,
+                                    height,
+                                };
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Failed to decode {}: {}", try_path, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("✗ Failed to read format for {}: {}", try_path, e);
+                    }
                 }
-            } else {
-                Icon::empty()
+            }
+            Err(e) => {
+                eprintln!("✗ Failed to read {}: {}", try_path, e);
             }
         }
-        Err(_) => Icon::empty(),
     }
+    
+    eprintln!("✗ Could not load icon from any path variant for: {}", path);
+    Icon::empty()
 }

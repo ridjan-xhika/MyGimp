@@ -28,6 +28,11 @@ pub struct InputState {
     pub current_tool: Tool,
     pub selection_start: Option<(u32, u32)>,
     pub selection_end: Option<(u32, u32)>,
+    // Advanced color picker state
+    pub show_color_picker: bool,
+    pub hue: f32, // 0..1
+    pub sat: f32, // 0..1
+    pub val: f32, // 0..1
 }
 
 impl InputState {
@@ -45,6 +50,10 @@ impl InputState {
             current_tool: Tool::Brush,
             selection_start: None,
             selection_end: None,
+            show_color_picker: false,
+            hue: 0.0,
+            sat: 1.0,
+            val: 1.0,
         }
     }
 
@@ -92,4 +101,38 @@ impl InputState {
         }
         self.brush.color = c;
     }
+
+    pub fn toggle_color_picker(&mut self) {
+        self.show_color_picker = !self.show_color_picker;
+    }
+
+    pub fn set_hsv(&mut self, h: f32, s: f32, v: f32) {
+        self.hue = h.clamp(0.0, 1.0);
+        self.sat = s.clamp(0.0, 1.0);
+        self.val = v.clamp(0.0, 1.0);
+        let rgb = hsv_to_rgb(self.hue, self.sat, self.val);
+        self.set_brush_color([rgb[0], rgb[1], rgb[2], 255]);
+    }
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [u8; 3] {
+    let h = (h * 6.0) % 6.0;
+    let i = h.floor();
+    let f = h - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let (r, g, b) = match i as i32 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    [
+        (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+    ]
 }

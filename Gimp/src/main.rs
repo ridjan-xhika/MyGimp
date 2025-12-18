@@ -129,8 +129,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     let panel_x = 8;
     let panel_y = TOOLBAR_HEIGHT + 8;
     
+    // Foreground / Background swatches (toggle color picker)
+    canvas.fill_rect(panel_x, panel_y, 24, 24, input.brush.color);
+    canvas.fill_rect(panel_x + 26, panel_y + 4, 22, 22, [240, 240, 240, 255]);
+    let border = [30, 30, 30, 255];
+    canvas.fill_rect(panel_x, panel_y, 24, 1, border);
+    canvas.fill_rect(panel_x, panel_y, 1, 24, border);
+    canvas.fill_rect(panel_x + 23, panel_y, 1, 24, border);
+    canvas.fill_rect(panel_x, panel_y + 23, 24, 1, border);
+
     // Color palette
-    let mut col_y = panel_y;
+    let mut col_y = panel_y + 30;
     for (i, color) in PALETTE.iter().enumerate() {
         if i >= 4 { break; }
         canvas.fill_rect(panel_x, col_y, PANEL_WIDTH - 16, 20, *color);
@@ -145,7 +154,76 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     let preview_w = (brush.radius * 2.0).min((PANEL_WIDTH - 16) as f32) as u32;
     let preview_x = panel_x + ((PANEL_WIDTH - 16).saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, size_y + 16, preview_w.max(4), 12, brush.color);
+
+    // Brush size slider under toolbar icons
+    let slider_y = TOOLBAR_HEIGHT.saturating_sub(10);
+    let slider_x = 8;
+    let slider_w = 280u32;
+    let track_color = [100, 100, 100, 255];
+    canvas.fill_rect(slider_x, slider_y, slider_w, 6, track_color);
+    let t = ((brush.radius - BRUSH_RADIUS_MIN) / (BRUSH_RADIUS_MAX - BRUSH_RADIUS_MIN)).clamp(0.0, 1.0);
+    let knob_x = slider_x + (t * slider_w as f32).round() as u32;
+    canvas.fill_rect(knob_x.saturating_sub(3), slider_y.saturating_sub(2), 6, 10, [200, 200, 200, 255]);
+
+    // Advanced color picker UI (Hue bar + SV square)
+    if input.show_color_picker {
+        // Geometry
+        let hue_x = panel_x;
+        let hue_y = size_y + 36;
+        let hue_w = 12u32;
+        let hue_h = 80u32;
+        let sv_x = hue_x + hue_w + 6;
+        let sv_y = hue_y;
+        let sv_w = (PANEL_WIDTH - 16).saturating_sub(hue_w + 6);
+        let sv_h = sv_w;
+
+        // Draw hue bar
+        for iy in 0..hue_h {
+            let hh = iy as f32 / hue_h as f32;
+            let rgb = hsv_to_rgb_u8(hh, 1.0, 1.0);
+            canvas.fill_rect(hue_x, hue_y + iy, hue_w, 1, [rgb[0], rgb[1], rgb[2], 255]);
+        }
+        // Hue indicator
+        let hue_pos = (input.hue.clamp(0.0, 1.0) * hue_h as f32).round() as u32;
+        canvas.fill_rect(hue_x, hue_y + hue_pos.saturating_sub(1), hue_w, 2, [255, 255, 255, 255]);
+
+        // Draw SV square for current hue
+        for iy in 0..sv_h {
+            let v = 1.0 - (iy as f32 / sv_h as f32);
+            for ix in 0..sv_w {
+                let s = ix as f32 / sv_w as f32;
+                let rgb = hsv_to_rgb_u8(input.hue, s, v);
+                canvas.fill_rect(sv_x + ix, sv_y + iy, 1, 1, [rgb[0], rgb[1], rgb[2], 255]);
+            }
+        }
+        // SV indicator
+        let sv_ix = (input.sat.clamp(0.0, 1.0) * sv_w as f32).round() as u32;
+        let sv_iy = ((1.0 - input.val.clamp(0.0, 1.0)) * sv_h as f32).round() as u32;
+        canvas.fill_rect(sv_x + sv_ix.saturating_sub(1), sv_y + sv_iy.saturating_sub(1), 3, 3, [255, 255, 255, 255]);
+    }
     
+
+fn hsv_to_rgb_u8(h: f32, s: f32, v: f32) -> [u8; 3] {
+    let h = (h * 6.0) % 6.0;
+    let i = h.floor();
+    let f = h - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let (r, g, b) = match i as i32 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    [
+        (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+    ]
+}
     // Status bar at bottom
     let status_bar_height = 20;
     let status_bar_y = canvas.height.saturating_sub(status_bar_height);
@@ -216,6 +294,16 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             else if rel_x < 114 { return Some(PanelAction::FileOpen); }
             else { return Some(PanelAction::FilterInvert); } // Undo for now
         }
+
+        // Brush size slider
+        let slider_y = TOOLBAR_HEIGHT.saturating_sub(10);
+        let slider_x = 8;
+        let slider_w = 280u32;
+        if y >= slider_y && y < slider_y + 6 && x >= slider_x && x < slider_x + slider_w {
+            let t = (x.saturating_sub(slider_x)) as f32 / slider_w as f32;
+            let value = BRUSH_RADIUS_MIN + t * (BRUSH_RADIUS_MAX - BRUSH_RADIUS_MIN);
+            return Some(PanelAction::SizeValue(value));
+        }
         
         return None;
     }
@@ -229,46 +317,59 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     let panel_y = TOOLBAR_HEIGHT + 8;
     let mut col_y = panel_y;
     
+    // Foreground/background swatch toggle
+    if y >= panel_y && y < panel_y + 24 && x >= panel_x && x < panel_x + 24 {
+        return Some(PanelAction::ToggleColorPicker);
+    }
+    
     // Color palette
     for (i, _) in PALETTE.iter().enumerate() {
         if i >= 4 { break; }
-        if y >= col_y && y < col_y + 20 && x >= panel_x && x < panel_x + PANEL_WIDTH - 16 {
+        let row_y = panel_y + 30 + i as u32 * 24;
+        if y >= row_y && y < row_y + 20 && x >= panel_x && x < panel_x + PANEL_WIDTH - 16 {
             return Some(PanelAction::Color(i as u8));
         }
-        col_y += 24;
+    }
+
+    // Color picker interactions
+    // Geometry mirrored from draw_ui()
+    let size_y = panel_y + 30 + 4 + 4 + 4; // approximate anchor below palette
+    let hue_x = panel_x;
+    let hue_y = size_y + 36;
+    let hue_w = 12u32;
+    let hue_h = 80u32;
+    let sv_x = hue_x + hue_w + 6;
+    let sv_y = hue_y;
+    let sv_w = (PANEL_WIDTH - 16).saturating_sub(hue_w + 6);
+    let sv_h = sv_w;
+    // Hue bar
+    if y >= hue_y && y < hue_y + hue_h && x >= hue_x && x < hue_x + hue_w {
+        let hh = (y - hue_y) as f32 / hue_h as f32;
+        return Some(PanelAction::PickerHue(hh));
+    }
+    // SV square
+    if y >= sv_y && y < sv_y + sv_h && x >= sv_x && x < sv_x + sv_w {
+        let s = (x - sv_x) as f32 / sv_w as f32;
+        let v = 1.0 - (y - sv_y) as f32 / sv_h as f32;
+        return Some(PanelAction::PickerSV(s, v));
     }
     None
 }
 
-#[derive(Copy, Clone)]
-struct SliderGeom {
-    row_x: u32,
-    row_y: u32,
-    row_h: u32,
-    track_x: u32,
-    track_w: u32,
-}
-    SliderGeom {
-        row_x,
-        row_y,
-        row_h,
-        track_x,
-        track_w,
-    }
-}
-
-fn slider_value_from_x(x: f32, geom: SliderGeom, min: f32, max: f32) -> f32 {
-    let travel = (geom.track_w as f32 - SLIDER_KNOB_W as f32).max(1.0);
-    let t = ((x - geom.track_x as f32) / travel).clamp(0.0, 1.0);
+fn slider_value_from_x(x: f32, geom: (u32, u32, u32, u32), min: f32, max: f32) -> f32 {
+    // Legacy function - kept for compatibility but not used
+    let (_, _, _, track_w) = geom;
+    let travel = (track_w as f32 - SLIDER_KNOB_W as f32).max(1.0);
+    let t = ((x - 0.0) / travel).clamp(0.0, 1.0);
     min + t * (max - min)
 }
 
 fn size_value_from_x(x: f32) -> f32 {
-    slider_value_from_x(x, size_slider_geom(), BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX)
+    slider_value_from_x(x, (0,0,0,0), BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX)
 }
 
 fn brightness_value_from_x(x: f32) -> f32 {
-    slider_value_from_x(x, brightness_slider_geom(), BRIGHT_MIN, BRIGHT_MAX)
+    slider_value_from_x(x, (0,0,0,100), BRIGHT_MIN, BRIGHT_MAX)
 }
 
 fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, size: u32) {
@@ -279,8 +380,9 @@ fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, siz
     let scale_x = size as f32 / icon.width as f32;
     let scale_y = size as f32 / icon.height as f32;
     
-    for iy in 0..icon.height.min(size) {
-        for ix in 0..icon.width.min(size) {
+    // Iterate through the original icon pixel dimensions
+    for iy in 0..icon.height {
+        for ix in 0..icon.width {
             let pixel_idx = ((iy * icon.width + ix) * 4) as usize;
             if pixel_idx + 3 < icon.pixels.len() {
                 let r = icon.pixels[pixel_idx];
@@ -290,13 +392,29 @@ fn draw_icon(canvas: &mut Canvas, icon: &crate::icons::Icon, x: u32, y: u32, siz
                 
                 // Only draw if not fully transparent
                 if a > 128 {
-                    let screen_x = x + ((ix as f32 * scale_x) as u32);
-                    let screen_y = y + ((iy as f32 * scale_y) as u32);
-                    if screen_x < canvas.width && screen_y < canvas.height {
-                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4) as usize] = r;
-                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 1) as usize] = g;
-                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 2) as usize] = b;
-                        canvas.pixels[((screen_y * canvas.width + screen_x) * 4 + 3) as usize] = 255;
+                    // Scale up the pixel to destination size
+                    let dest_x_start = ((ix as f32 * scale_x) as u32).min(size);
+                    let dest_y_start = ((iy as f32 * scale_y) as u32).min(size);
+                    let dest_x_end = (((ix + 1) as f32 * scale_x) as u32).min(size);
+                    let dest_y_end = (((iy + 1) as f32 * scale_y) as u32).min(size);
+                    
+                    for dy in dest_y_start..dest_y_end {
+                        let screen_y = y + dy;
+                        if screen_y < canvas.height {
+                            let row = screen_y as usize * canvas.stride;
+                            for dx in dest_x_start..dest_x_end {
+                                let screen_x = x + dx;
+                                if screen_x < canvas.width {
+                                    let dest_idx = row + screen_x as usize * 4;
+                                    if dest_idx + 3 < canvas.pixels.len() {
+                                        canvas.pixels[dest_idx] = r;
+                                        canvas.pixels[dest_idx + 1] = g;
+                                        canvas.pixels[dest_idx + 2] = b;
+                                        canvas.pixels[dest_idx + 3] = 255;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -365,68 +483,6 @@ fn draw_char(canvas: &mut Canvas, x: u32, y: u32, ch: char, color: [u8; 4]) {
     }
 }
 
-fn draw_slider(canvas: &mut Canvas, geom: SliderGeom, value: f32, min: f32, max: f32, label: char) {
-    let track_color = [200, 200, 200, 255];
-    let knob_color = [60, 60, 60, 255];
-    let icon_color = [30, 30, 30, 255];
-    // Label glyph
-    draw_glyph(canvas, geom.row_x, geom.row_y, label, icon_color);
-    // Minus icon
-    let minus_x = geom.row_x + SLIDER_LABEL_W;
-    draw_minus_icon(canvas, minus_x, geom.row_y, icon_color);
-    // Plus icon
-    let plus_x = geom.track_x + geom.track_w;
-    draw_plus_icon(canvas, plus_x.saturating_sub(SLIDER_ICON_W), geom.row_y, icon_color);
-
-    // Track and knob
-    canvas.fill_rect(geom.track_x, geom.row_y, geom.track_w, geom.row_h, track_color);
-    let t = ((value - min) / (max - min)).clamp(0.0, 1.0);
-    let knob_travel = geom.track_w.saturating_sub(SLIDER_KNOB_W);
-    let knob_x = geom.track_x + ((t * knob_travel as f32).round() as u32);
-    canvas.fill_rect(knob_x, geom.row_y, SLIDER_KNOB_W.min(geom.track_w), geom.row_h, knob_color);
-}
-
-fn draw_glyph(canvas: &mut Canvas, x: u32, y: u32, ch: char, color: [u8; 4]) {
-    // Simple 5x5 pixel glyphs for labels
-    let pattern: [u8; 25] = match ch {
-        'S' => [
-            1, 1, 1, 1, 1,
-            1, 0, 0, 0, 0,
-            1, 1, 1, 1, 1,
-            0, 0, 0, 0, 1,
-            1, 1, 1, 1, 1,
-        ],
-        'B' => [
-            1, 1, 1, 1, 0,
-            1, 0, 0, 0, 1,
-            1, 1, 1, 1, 0,
-            1, 0, 0, 0, 1,
-            1, 1, 1, 1, 0,
-        ],
-        _ => [0; 25],
-    };
-    for row in 0..5u32 {
-        for col in 0..5u32 {
-            if pattern[(row * 5 + col) as usize] == 1 {
-                canvas.fill_rect(x + col, y + row + 1, 1, 1, color);
-            }
-        }
-    }
-}
-
-fn draw_minus_icon(canvas: &mut Canvas, x: u32, y: u32, color: [u8; 4]) {
-    let pad = 2;
-    canvas.fill_rect(x + pad, y + SLIDER_H / 2, SLIDER_ICON_W.saturating_sub(pad * 2), 1, color);
-}
-
-fn draw_plus_icon(canvas: &mut Canvas, x: u32, y: u32, color: [u8; 4]) {
-    let pad = 2;
-    let w = SLIDER_ICON_W.saturating_sub(pad * 2);
-    let cx = x + pad + w / 2;
-    canvas.fill_rect(x + pad, y + SLIDER_H / 2, w, 1, color);
-    canvas.fill_rect(cx, y + 1, 1, SLIDER_H.saturating_sub(2), color);
-}
-
 enum PanelAction {
     Color(u8),
     SizeValue(f32),
@@ -442,6 +498,9 @@ enum PanelAction {
     FilterGrayscale,
     FilterBrightness,
     FilterBlur,
+    ToggleColorPicker,
+    PickerHue(f32),
+    PickerSV(f32, f32),
 }
 
 fn handle_panel_action(
@@ -581,6 +640,18 @@ fn handle_panel_action(
             window.request_redraw();
             println!("✓ Applied Blur filter");
         }
+        PanelAction::ToggleColorPicker => {
+            input.toggle_color_picker();
+            window.request_redraw();
+        }
+        PanelAction::PickerHue(h) => {
+            input.set_hsv(h, input.sat, input.val);
+            window.request_redraw();
+        }
+        PanelAction::PickerSV(s, v) => {
+            input.set_hsv(input.hue, s, v);
+            window.request_redraw();
+        }
     }
 }
 
@@ -716,10 +787,8 @@ fn main() {
                                             // Undo/Redo shortcuts
                                             KeyCode::KeyZ if ctrl_pressed && !shift_pressed => {
                                                 // Ctrl+Z: Undo
-                                                if let Some(state) = history.undo() {
-                                                    if let Some(c) = canvas.as_mut() {
-                                                        history.restore(c, state);
-                                                        c.dirty = true;
+                                                if let Some(c) = canvas.as_mut() {
+                                                    if history.undo(c) {
                                                         w.request_redraw();
                                                         println!("↶ Undo");
                                                     }
@@ -727,10 +796,8 @@ fn main() {
                                             }
                                             KeyCode::KeyZ if ctrl_pressed && shift_pressed => {
                                                 // Ctrl+Shift+Z: Redo
-                                                if let Some(state) = history.redo() {
-                                                    if let Some(c) = canvas.as_mut() {
-                                                        history.restore(c, state);
-                                                        c.dirty = true;
+                                                if let Some(c) = canvas.as_mut() {
+                                                    if history.redo(c) {
                                                         w.request_redraw();
                                                         println!("↷ Redo");
                                                     }
