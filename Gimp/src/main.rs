@@ -995,20 +995,24 @@ fn main() {
                                                     input.drawing = true;
                                                 }
                                                 input::Tool::FillBucket => {
-                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
-                                                    let canvas_y = pos.1 as u32;
-                                                    c.flood_fill(canvas_x, canvas_y, input.brush.color);
-                                                    history.push(c);
-                                                    w.request_redraw();
+                                                    if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
+                                                        let canvas_x = pos.0 as u32;
+                                                        let canvas_y = pos.1 as u32;
+                                                        c.flood_fill(canvas_x, canvas_y, input.brush.color);
+                                                        history.push(c);
+                                                        w.request_redraw();
+                                                    }
                                                 }
                                                 input::Tool::ColorPicker => {
-                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
-                                                    let canvas_y = pos.1 as u32;
-                                                    if let Some(color) = c.get_pixel(canvas_x, canvas_y) {
-                                                        input.set_brush_color(color);
-                                                        println!("Picked color: {:?}", color);
+                                                    if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
+                                                        let canvas_x = pos.0 as u32;
+                                                        let canvas_y = pos.1 as u32;
+                                                        if let Some(color) = c.get_pixel(canvas_x, canvas_y) {
+                                                            input.set_brush_color(color);
+                                                            println!("Picked color: {:?}", color);
+                                                        }
+                                                        w.request_redraw();
                                                     }
-                                                    w.request_redraw();
                                                 }
                                                 input::Tool::Move => {
                                                     input.drawing = true;
@@ -1055,31 +1059,34 @@ fn main() {
                                             return;
                                         }
                                         
-                                        match input.current_tool {
-                                            input::Tool::Brush => {
-                                                if let Some(last) = prev {
-                                                    input.brush.stroke(c, last, p);
-                                                } else {
-                                                    input.brush.stamp(c, p);
-                                                }
-                                                w.request_redraw();
-                                            }
-                                            input::Tool::Eraser => {
-                                                // Eraser directly sets pixels to transparent
-                                                c.erase_circle((p.0 - PANEL_WIDTH as f32).max(0.0), p.1, input.brush.radius);
-                                                if let Some(last) = prev {
-                                                    // Draw line of eraser stamps
-                                                    let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
-                                                    let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
-                                                    for i in 0..=steps {
-                                                        let t = i as f32 / steps as f32;
-                                                        let ix = last.0 + (p.0 - last.0) * t;
-                                                        let iy = last.1 + (p.1 - last.1) * t;
-                                                        c.erase_circle((ix - PANEL_WIDTH as f32).max(0.0), iy, input.brush.radius);
+                                            match input.current_tool {
+                                                input::Tool::Brush => {
+                                                    // Block drawing in UI regions
+                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                        if let Some(last) = prev {
+                                                            input.brush.stroke(c, last, p);
+                                                        } else {
+                                                            input.brush.stamp(c, p);
+                                                        }
+                                                        w.request_redraw();
                                                     }
                                                 }
-                                                w.request_redraw();
-                                            }
+                                                input::Tool::Eraser => {
+                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                        c.erase_circle(p.0, p.1, input.brush.radius);
+                                                        if let Some(last) = prev {
+                                                            let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
+                                                            let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
+                                                            for i in 0..=steps {
+                                                                let t = i as f32 / steps as f32;
+                                                                let ix = last.0 + (p.0 - last.0) * t;
+                                                                let iy = last.1 + (p.1 - last.1) * t;
+                                                                c.erase_circle(ix, iy, input.brush.radius);
+                                                            }
+                                                        }
+                                                        w.request_redraw();
+                                                    }
+                                                }
                                             input::Tool::Move => {
                                                 if let Some(last) = prev {
                                                     let dx = ((p.0 - last.0) / c.zoom_scale) as i32;
