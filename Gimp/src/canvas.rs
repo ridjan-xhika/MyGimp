@@ -236,6 +236,76 @@ impl Canvas {
         }
     }
 
+    /// Erase a circle (set pixels to transparent in drawing layer)
+    pub fn erase_circle(&mut self, cx: f32, cy: f32, radius: f32) {
+        if radius <= 0.0 {
+            return;
+        }
+        let r2 = radius * radius;
+        let min_x = (cx - radius).floor().max(0.0) as i32;
+        let max_x = (cx + radius).ceil().min((self.width - 1) as f32) as i32;
+        let min_y = (cy - radius).floor().max(0.0) as i32;
+        let max_y = (cy + radius).ceil().min((self.height - 1) as f32) as i32;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                if dx * dx + dy * dy <= r2 {
+                    let canvas_x = x as u32;
+                    let canvas_y = y as u32;
+                    
+                    if canvas_x >= self.width || canvas_y >= self.height {
+                        continue;
+                    }
+                    
+                    // Erase from drawing layer if we have an image
+                    if let Some((img_w, img_h)) = self.loaded_image_size {
+                        let (offset_x, offset_y) = self.pan_offset;
+                        let img_x = ((canvas_x as f32 / self.zoom_scale) as i32) - offset_x;
+                        let img_y = ((canvas_y as f32 / self.zoom_scale) as i32) - offset_y;
+                        
+                        if img_x >= 0 && img_x < img_w as i32 && img_y >= 0 && img_y < img_h as i32 {
+                            let img_stride = img_w as usize * 4;
+                            let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
+                            if img_idx + 4 <= self.drawing_layer.len() {
+                                self.drawing_layer[img_idx..img_idx + 4].copy_from_slice(&[0, 0, 0, 0]);
+                            }
+                        }
+                    }
+                    
+                    // Also update display buffer
+                    let idx = canvas_y as usize * self.stride + canvas_x as usize * 4;
+                    if idx + 4 <= self.pixels.len() {
+                        // Get the background pixel (re-render from loaded image if available)
+                        if let Some((img_w, img_h)) = self.loaded_image_size {
+                            if let Some(img_data) = &self.loaded_image_data {
+                                let (offset_x, offset_y) = self.pan_offset;
+                                let img_x = ((canvas_x as f32 / self.zoom_scale) as i32) - offset_x;
+                                let img_y = ((canvas_y as f32 / self.zoom_scale) as i32) - offset_y;
+                                
+                                if img_x >= 0 && img_x < img_w as i32 && img_y >= 0 && img_y < img_h as i32 {
+                                    let img_stride = img_w as usize * 4;
+                                    let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
+                                    if img_idx + 4 <= img_data.len() {
+                                        self.pixels[idx..idx + 4].copy_from_slice(&img_data[img_idx..img_idx + 4]);
+                                    }
+                                } else {
+                                    self.pixels[idx..idx + 4].copy_from_slice(&[255, 255, 255, 255]);
+                                }
+                            }
+                        } else {
+                            // No image, set to white
+                            self.pixels[idx..idx + 4].copy_from_slice(&[255, 255, 255, 255]);
+                        }
+                    }
+                }
+            }
+        }
+        
+        self.dirty = true;
+    }
+
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
         if w == 0 || h == 0 {
             return;
