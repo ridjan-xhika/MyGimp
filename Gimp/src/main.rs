@@ -191,6 +191,14 @@ fn slider_value_from_x(x: f32, geom: SliderGeom, min: f32, max: f32) -> f32 {
     min + t * (max - min)
 }
 
+fn size_value_from_x(x: f32) -> f32 {
+    slider_value_from_x(x, size_slider_geom(), BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX)
+}
+
+fn brightness_value_from_x(x: f32) -> f32 {
+    slider_value_from_x(x, brightness_slider_geom(), BRIGHT_MIN, BRIGHT_MAX)
+}
+
 fn draw_slider(canvas: &mut Canvas, geom: SliderGeom, value: f32, min: f32, max: f32, label: char) {
     let track_color = [200, 200, 200, 255];
     let knob_color = [60, 60, 60, 255];
