@@ -4,17 +4,20 @@ pub struct Canvas {
     pub width: u32,
     pub height: u32,
     pub stride: usize,
-    pub pixels: Vec<u8>,
+    pub pixels: Vec<u8>, // Composite display buffer
     pub dirty: bool,
     pub loaded_image_size: Option<(u32, u32)>, // Track size of loaded image for panning
     pub loaded_image_data: Option<Vec<u8>>, // Store loaded image for re-panning
     pub zoom_scale: f32, // Zoom level (1.0 = 100%, 2.0 = 200%, etc.)
+    pub drawing_layer: Vec<u8>, // User drawings layer in IMAGE-SPACE coordinates
+    pub pan_offset: (i32, i32), // Store pan offset so drawings can use it
 }
 
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Self {
         let stride = aligned_stride(width);
         let pixels = vec![255; stride * height as usize];
+        let drawing_layer = vec![]; // Will be sized to match loaded image
         Self {
             width,
             height,
@@ -24,6 +27,8 @@ impl Canvas {
             loaded_image_size: None,
             loaded_image_data: None,
             zoom_scale: 1.0,
+            drawing_layer,
+            pan_offset: (0, 0),
         }
     }
 
@@ -64,35 +69,82 @@ impl Canvas {
     }
 
     /// Paste an image onto the canvas with offset (for panning large images)
+    /// This updates the background layer only, not the drawing layer
     pub fn paste_image_with_offset(&mut self, img_width: u32, img_height: u32, img_pixels: &[u8], offset_x: i32, offset_y: i32) {
+        let is_new_image = self.loaded_image_size != Some((img_width, img_height));
+        
         self.loaded_image_size = Some((img_width, img_height));
         self.loaded_image_data = Some(img_pixels.to_vec());
+        self.pan_offset = (offset_x, offset_y);
+        
+        // Initialize drawing layer to match image size if new image
+        if is_new_image {
+            self.drawing_layer = vec![0; (img_width * img_height * 4) as usize];
+        }
         
         let img_stride = img_width as usize * 4;
         
+        // Render the background image with zoom/pan
         for canvas_y in 0..self.height {
             for canvas_x in 0..self.width {
                 // Calculate source image coordinates with zoom
                 let img_x = ((canvas_x as f32 / self.zoom_scale) as i32) - offset_x;
                 let img_y = ((canvas_y as f32 / self.zoom_scale) as i32) - offset_y;
                 
+                let canvas_idx = (canvas_y as usize * self.stride) + (canvas_x as usize * 4);
+                
                 if img_x >= 0 && img_x < img_width as i32 && img_y >= 0 && img_y < img_height as i32 {
                     let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
-                    let canvas_idx = (canvas_y as usize * self.stride) + (canvas_x as usize * 4);
                     
                     if img_idx + 4 <= img_pixels.len() && canvas_idx + 4 <= self.pixels.len() {
                         self.pixels[canvas_idx..canvas_idx + 4].copy_from_slice(&img_pixels[img_idx..img_idx + 4]);
                     }
                 } else {
                     // Fill with white outside image bounds
-                    let canvas_idx = (canvas_y as usize * self.stride) + (canvas_x as usize * 4);
                     if canvas_idx + 4 <= self.pixels.len() {
                         self.pixels[canvas_idx..canvas_idx + 4].copy_from_slice(&[255, 255, 255, 255]);
                     }
                 }
             }
         }
+        
+        // Composite drawing layer on top
+        self.composite_layers();
         self.dirty = true;
+    }
+    
+    /// Composite the drawing layer on top of the background
+    /// Drawing layer is in image-space, so we need to transform coordinates
+    fn composite_layers(&mut self) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let (offset_x, offset_y) = self.pan_offset;
+            
+            for canvas_y in 0..self.height {
+                for canvas_x in 0..self.width {
+                    // Convert canvas coords to image coords
+                    let img_x = ((canvas_x as f32 / self.zoom_scale) as i32) - offset_x;
+                    let img_y = ((canvas_y as f32 / self.zoom_scale) as i32) - offset_y;
+                    
+                    if img_x >= 0 && img_x < img_w as i32 && img_y >= 0 && img_y < img_h as i32 {
+                        let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
+                        let canvas_idx = (canvas_y as usize * self.stride) + (canvas_x as usize * 4);
+                        
+                        if img_idx + 3 < self.drawing_layer.len() && canvas_idx + 3 < self.pixels.len() {
+                            let alpha = self.drawing_layer[img_idx + 3] as f32 / 255.0;
+                            if alpha > 0.0 {
+                                // Alpha blend drawing on top of background
+                                for j in 0..3 {
+                                    let bg = self.pixels[canvas_idx + j] as f32;
+                                    let fg = self.drawing_layer[img_idx + j] as f32;
+                                    self.pixels[canvas_idx + j] = (fg * alpha + bg * (1.0 - alpha)) as u8;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     /// Re-render the loaded image with a new offset
@@ -123,14 +175,43 @@ impl Canvas {
         if x >= self.width || y >= self.height {
             return;
         }
-        let idx = y as usize * self.stride + x as usize * 4;
-        let dst = &mut self.pixels[idx..idx + 4];
-        let a = color[3] as f32 / 255.0;
-        for i in 0..4 {
-            let src_v = color[i] as f32;
-            let dst_v = dst[i] as f32;
-            dst[i] = (src_v * a + dst_v * (1.0 - a)).round() as u8;
+        
+        // Convert canvas coordinates to image coordinates (so drawing moves with pan/zoom)
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let (offset_x, offset_y) = self.pan_offset;
+            
+            let img_x = ((x as f32 / self.zoom_scale) as i32) - offset_x;
+            let img_y = ((y as f32 / self.zoom_scale) as i32) - offset_y;
+            
+            if img_x >= 0 && img_x < img_w as i32 && img_y >= 0 && img_y < img_h as i32 {
+                // Store in drawing layer at image coordinates
+                let img_stride = img_w as usize * 4;
+                let img_idx = (img_y as usize * img_stride) + (img_x as usize * 4);
+                
+                if img_idx + 4 <= self.drawing_layer.len() {
+                    let dst = &mut self.drawing_layer[img_idx..img_idx + 4];
+                    let a = color[3] as f32 / 255.0;
+                    for i in 0..4 {
+                        let src_v = color[i] as f32;
+                        let dst_v = dst[i] as f32;
+                        dst[i] = (src_v * a + dst_v * (1.0 - a)).round() as u8;
+                    }
+                }
+            }
         }
+        
+        // Also update the display buffer at canvas coordinates
+        let idx = y as usize * self.stride + x as usize * 4;
+        if idx + 4 <= self.pixels.len() {
+            let display_dst = &mut self.pixels[idx..idx + 4];
+            let a = color[3] as f32 / 255.0;
+            for i in 0..4 {
+                let src_v = color[i] as f32;
+                let dst_v = display_dst[i] as f32;
+                display_dst[i] = (src_v * a + dst_v * (1.0 - a)).round() as u8;
+            }
+        }
+        
         self.dirty = true;
     }
 

@@ -425,7 +425,7 @@ fn handle_panel_action(
                 Ok(path) => {
                     match io::load_image(&path) {
                         Ok(img_layer) => {
-                            input.pan_offset = (0, 0);
+                            canvas.pan_offset = (0, 0);
                             canvas.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
                             window.request_redraw();
                             println!("✓ Imported ({}x{}) - Use arrow keys to pan", img_layer.width, img_layer.height);
@@ -583,7 +583,7 @@ fn main() {
                                                 // Zoom in (Shift+= or Page Up)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
                                                     println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
                                                 }
@@ -592,7 +592,7 @@ fn main() {
                                                 // Zoom out (Shift+- or Page Down)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
                                                     println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
                                                 }
@@ -601,7 +601,7 @@ fn main() {
                                                 // Reset zoom to 100% (Shift+0)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = 1.0;
-                                                    input.pan_offset = (0, 0);
+                                                    c.pan_offset = (0, 0);
                                                     c.repan_image(0, 0);
                                                     w.request_redraw();
                                                     println!("Zoom: 100%");
@@ -619,58 +619,30 @@ fn main() {
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::ArrowLeft => {
                                                 if c.loaded_image_size.is_some() {
-                                                    input.pan_offset.0 += 50;
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.pan_offset.0 += 50;
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowRight => {
                                                 if c.loaded_image_size.is_some() {
-                                                    input.pan_offset.0 -= 50;
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.pan_offset.0 -= 50;
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowUp => {
                                                 if c.loaded_image_size.is_some() {
-                                                    input.pan_offset.1 += 50;
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.pan_offset.1 += 50;
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
                                                 }
                                             }
                                             KeyCode::ArrowDown => {
                                                 if c.loaded_image_size.is_some() {
-                                                    input.pan_offset.1 -= 50;
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    c.pan_offset.1 -= 50;
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
                                                     w.request_redraw();
-                                                }
-                                            }
-                                            KeyCode::PageUp | KeyCode::Equal if shift_pressed => {
-                                                // Zoom in (Shift+= or Page Up)
-                                                if c.loaded_image_size.is_some() {
-                                                    c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
-                                                    w.request_redraw();
-                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
-                                                }
-                                            }
-                                            KeyCode::PageDown | KeyCode::Minus if shift_pressed => {
-                                                // Zoom out (Shift+- or Page Down)
-                                                if c.loaded_image_size.is_some() {
-                                                    c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
-                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
-                                                    w.request_redraw();
-                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
-                                                }
-                                            }
-                                            KeyCode::Digit0 if shift_pressed => {
-                                                // Reset zoom to 100% (Shift+0)
-                                                if c.loaded_image_size.is_some() {
-                                                    c.zoom_scale = 1.0;
-                                                    input.pan_offset = (0, 0);
-                                                    c.repan_image(0, 0);
-                                                    w.request_redraw();
-                                                    println!("Zoom: 100%");
                                                 }
                                             }
                                             KeyCode::KeyS => {
@@ -714,7 +686,7 @@ fn main() {
                                                     Ok(path) => {
                                                         match io::load_image(&path) {
                                                             Ok(img_layer) => {
-                                                                input.pan_offset = (0, 0);
+                                                                c.pan_offset = (0, 0);
                                                                 c.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
                                                                 w.request_redraw();
                                                                 let filename = std::path::Path::new(&path)
