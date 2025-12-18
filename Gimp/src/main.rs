@@ -574,6 +574,29 @@ fn main() {
                                             KeyCode::Equal => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketLeft => input.adjust_brush_radius(-2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            KeyCode::ArrowLeft => {
+                                                input.pan_offset.0 = (input.pan_offset.0 - 50).max(-5000);
+                                                if let Some(img_size) = c.loaded_image_size {
+                                                    // Re-paste with new offset
+                                                    match io::load_image(&"") {
+                                                        Ok(_) => {} // Will be handled by stored image
+                                                        Err(_) => {}
+                                                    }
+                                                }
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::ArrowRight => {
+                                                input.pan_offset.0 = (input.pan_offset.0 + 50).min(5000);
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::ArrowUp => {
+                                                input.pan_offset.1 = (input.pan_offset.1 - 50).max(-5000);
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::ArrowDown => {
+                                                input.pan_offset.1 = (input.pan_offset.1 + 50).min(5000);
+                                                w.request_redraw();
+                                            }
                                             KeyCode::KeyS => {
                                                 let new_w = (window_size.width.max(1) as f32 * 0.75).round() as u32;
                                                 let new_h = (window_size.height.max(1) as f32 * 0.75).round() as u32;

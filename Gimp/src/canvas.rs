@@ -7,6 +7,7 @@ pub struct Canvas {
     pub pixels: Vec<u8>,
     pub dirty: bool,
     pub loaded_image_size: Option<(u32, u32)>, // Track size of loaded image for panning
+    pub loaded_image_data: Option<Vec<u8>>, // Store loaded image for re-panning
 }
 
 impl Canvas {
@@ -20,6 +21,7 @@ impl Canvas {
             pixels,
             dirty: true,
             loaded_image_size: None,
+            loaded_image_data: None,
         }
     }
 
