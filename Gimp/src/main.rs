@@ -599,6 +599,34 @@ fn main() {
                                                     w.request_redraw();
                                                 }
                                             }
+                                            KeyCode::PageUp | KeyCode::Equal if event.state.shift_key() => {
+                                                // Zoom in (Shift+= or Page Up)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            KeyCode::PageDown | KeyCode::Minus if event.state.shift_key() => {
+                                                // Zoom out (Shift+- or Page Down)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            KeyCode::Digit0 if event.state.shift_key() => {
+                                                // Reset zoom to 100% (Shift+0)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = 1.0;
+                                                    input.pan_offset = (0, 0);
+                                                    c.repan_image(0, 0);
+                                                    w.request_redraw();
+                                                    println!("Zoom: 100%");
+                                                }
+                                            }
                                             KeyCode::KeyS => {
                                                 let new_w = (window_size.width.max(1) as f32 * 0.75).round() as u32;
                                                 let new_h = (window_size.height.max(1) as f32 * 0.75).round() as u32;
