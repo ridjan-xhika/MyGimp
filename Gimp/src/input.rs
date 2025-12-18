@@ -6,6 +6,16 @@ pub enum SliderDrag {
     Brightness,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Tool {
+    Brush,
+    Eraser,
+    FillBucket,
+    ColorPicker,
+    RectSelect,
+    Move,
+}
+
 pub struct InputState {
     pub drawing: bool,
     pub last_pos: Option<(f32, f32)>,
@@ -16,6 +26,9 @@ pub struct InputState {
     pub pan_offset: (i32, i32), // (x, y) offset for viewing large images
     pub shift_pressed: bool,
     pub ctrl_pressed: bool,
+    pub current_tool: Tool,
+    pub selection_start: Option<(u32, u32)>,
+    pub selection_end: Option<(u32, u32)>,
 }
 
 impl InputState {
@@ -30,6 +43,9 @@ impl InputState {
             pan_offset: (0, 0),
             shift_pressed: false,
             ctrl_pressed: false,
+            current_tool: Tool::Brush,
+            selection_start: None,
+            selection_end: None,
         }
     }
 
