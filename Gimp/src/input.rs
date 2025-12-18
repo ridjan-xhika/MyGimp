@@ -14,6 +14,8 @@ pub struct InputState {
     pub brightness: f32,
     pub slider_dragging: Option<SliderDrag>,
     pub pan_offset: (i32, i32), // (x, y) offset for viewing large images
+    pub shift_pressed: bool,
+    pub ctrl_pressed: bool,
 }
 
 impl InputState {
@@ -26,6 +28,8 @@ impl InputState {
             brush,
             slider_dragging: None,
             pan_offset: (0, 0),
+            shift_pressed: false,
+            ctrl_pressed: false,
         }
     }
 

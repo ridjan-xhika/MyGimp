@@ -560,8 +560,21 @@ fn main() {
                                 w.request_redraw();
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
-                                let shift_pressed = event.modifiers.state().shift_key();
-                                let ctrl_pressed = event.modifiers.state().control_key();
+                                // Track modifier keys
+                                if let PhysicalKey::Code(code) = event.physical_key {
+                                    match code {
+                                        KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+                                            input.shift_pressed = event.state == ElementState::Pressed;
+                                        }
+                                        KeyCode::ControlLeft | KeyCode::ControlRight => {
+                                            input.ctrl_pressed = event.state == ElementState::Pressed;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                
+                                let shift_pressed = input.shift_pressed;
+                                let ctrl_pressed = input.ctrl_pressed;
                                 if event.state == ElementState::Pressed {
                                     if let PhysicalKey::Code(code) = event.physical_key {
                                         match code {
