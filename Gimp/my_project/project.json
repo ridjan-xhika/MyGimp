@@ -1,0 +1,12 @@
+{
+  "name": "MyProject",
+  "width": 800,
+  "height": 600,
+  "layers": [
+    {
+      "name": "layer_0",
+      "visible": true,
+      "filename": "layer_000.png"
+    }
+  ]
+}

@@ -2,6 +2,8 @@ mod brush;
 mod canvas;
 mod gpu;
 mod input;
+mod layer;
+mod io;
 
 use std::sync::Arc;
 use winit::{
@@ -90,6 +92,20 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     let preview_w = (brush.radius * 2.0).min(w as f32) as u32;
     let preview_x = x + (w.saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, preview_y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
+
+    // File operation buttons at bottom (I E S O for Import, Export, Save, Open)
+    let file_buttons_y = preview_y + UI_BUTTON_H / 2 + UI_GAP;
+    let btn_w = (w - UI_GAP) / 2;
+    let file_btn_color = [170, 170, 200, 255];
+    
+    // Import / Export row
+    canvas.fill_rect(x, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
+    canvas.fill_rect(x + btn_w + UI_GAP, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
+    
+    // Save / Open row
+    let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
+    canvas.fill_rect(x, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
+    canvas.fill_rect(x + btn_w + UI_GAP, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
 }
 
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
@@ -136,6 +152,32 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     if y >= bright_geom.row_y && y < bright_geom.row_y + bright_geom.row_h && x >= bright_geom.track_x && x < bright_geom.track_x + bright_geom.track_w {
         let value = slider_value_from_x(x as f32, bright_geom, BRIGHT_MIN, BRIGHT_MAX);
         return Some(PanelAction::Brightness(value));
+    }
+
+    // File operation buttons
+    let preview_y = bright_geom.row_y + bright_geom.row_h + UI_GAP + UI_BUTTON_H / 2 + UI_GAP;
+    let file_buttons_y = preview_y;
+    let btn_w = (full_w - UI_GAP) / 2;
+    
+    // Import / Export row
+    if y >= file_buttons_y && y < file_buttons_y + UI_BUTTON_H {
+        let rel_x = x.saturating_sub(UI_MARGIN);
+        if rel_x < btn_w {
+            return Some(PanelAction::FileImport);
+        } else if rel_x > btn_w + UI_GAP {
+            return Some(PanelAction::FileExport);
+        }
+    }
+    
+    // Save / Open row
+    let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
+    if y >= second_row_y && y < second_row_y + UI_BUTTON_H {
+        let rel_x = x.saturating_sub(UI_MARGIN);
+        if rel_x < btn_w {
+            return Some(PanelAction::FileSave);
+        } else if rel_x > btn_w + UI_GAP {
+            return Some(PanelAction::FileOpen);
+        }
     }
 
     None
@@ -263,6 +305,10 @@ enum PanelAction {
     CanvasSmaller,
     CanvasLarger,
     Brightness(f32),
+    FileImport,
+    FileExport,
+    FileSave,
+    FileOpen,
 }
 
 fn handle_panel_action(
@@ -299,6 +345,82 @@ fn handle_panel_action(
         PanelAction::Brightness(value) => {
             input.set_brightness(value, BRIGHT_MIN, BRIGHT_MAX);
             window.request_redraw();
+        }
+        PanelAction::FileImport => {
+            match io::select_image_file() {
+                Ok(path) => {
+                    match io::load_image(&path) {
+                        Ok(img_layer) => {
+                            if img_layer.width == canvas.width && img_layer.height == canvas.height {
+                                canvas.pixels = img_layer.pixels;
+                                canvas.dirty = true;
+                                window.request_redraw();
+                                println!("✓ Imported");
+                            } else {
+                                eprintln!("✗ Size mismatch");
+                            }
+                        }
+                        Err(e) => eprintln!("✗ Import failed: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("✗ {}", e),
+            }
+        }
+        PanelAction::FileExport => {
+            match io::select_export_png_path() {
+                Ok(path) => {
+                    match io::export_canvas_as_png(canvas, &path) {
+                        Ok(_) => println!("✓ Exported"),
+                        Err(e) => eprintln!("✗ Export failed: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("✗ {}", e),
+            }
+        }
+        PanelAction::FileSave => {
+            match io::select_save_project_folder() {
+                Ok(path) => {
+                    let layer = layer::Layer::from_rgba(
+                        "canvas".to_string(),
+                        canvas.width,
+                        canvas.height,
+                        canvas.pixels.clone(),
+                    );
+                    let project_name = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Project")
+                        .to_string();
+                    let mut project = layer::Project::new(project_name, canvas.width, canvas.height);
+                    project.add_layer_metadata("canvas".to_string(), "layer_000.png".to_string());
+                    
+                    match io::save_project(&project, &[layer], &path) {
+                        Ok(_) => println!("✓ Saved"),
+                        Err(e) => eprintln!("✗ Save failed: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("✗ {}", e),
+            }
+        }
+        PanelAction::FileOpen => {
+            match io::select_load_project_folder() {
+                Ok(path) => {
+                    match io::load_project(&path) {
+                        Ok((project, layers)) => {
+                            if !layers.is_empty() && layers[0].width == canvas.width && layers[0].height == canvas.height {
+                                canvas.pixels = layers[0].pixels.clone();
+                                canvas.dirty = true;
+                                window.request_redraw();
+                                println!("✓ Loaded: {}", project.name);
+                            } else {
+                                eprintln!("✗ Size mismatch");
+                            }
+                        }
+                        Err(e) => eprintln!("✗ Load failed: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("✗ {}", e),
+            }
         }
     }
 }
@@ -370,6 +492,106 @@ fn main() {
                                                 g.resize(window_size);
                                                 *c = Canvas::new(window_size.width.max(1), window_size.height.max(1));
                                                 w.request_redraw();
+                                            }
+                                            // IO shortcuts
+                                            KeyCode::KeyE => {
+                                                // Ctrl+E: Export canvas as PNG
+                                                match io::select_export_png_path() {
+                                                    Ok(path) => {
+                                                        match io::export_canvas_as_png(c, &path) {
+                                                            Ok(_) => {
+                                                                let filename = std::path::Path::new(&path)
+                                                                    .file_name()
+                                                                    .and_then(|n| n.to_str())
+                                                                    .unwrap_or("file");
+                                                                println!("✓ Canvas exported to {}", filename);
+                                                            }
+                                                            Err(e) => eprintln!("✗ Export failed: {}", e),
+                                                        }
+                                                    }
+                                                    Err(e) => eprintln!("✗ {}", e),
+                                                }
+                                            }
+                                            KeyCode::KeyI => {
+                                                // Ctrl+I: Import PNG
+                                                match io::select_image_file() {
+                                                    Ok(path) => {
+                                                        match io::load_image(&path) {
+                                                            Ok(img_layer) => {
+                                                                if img_layer.width == c.width && img_layer.height == c.height {
+                                                                    c.pixels = img_layer.pixels;
+                                                                    c.dirty = true;
+                                                                    w.request_redraw();
+                                                                    let filename = std::path::Path::new(&path)
+                                                                        .file_name()
+                                                                        .and_then(|n| n.to_str())
+                                                                        .unwrap_or("image");
+                                                                    println!("✓ Imported {}", filename);
+                                                                } else {
+                                                                    eprintln!("✗ Image size ({}x{}) doesn't match canvas ({}x{})",
+                                                                        img_layer.width, img_layer.height, c.width, c.height);
+                                                                }
+                                                            }
+                                                            Err(e) => eprintln!("✗ Import failed: {}", e),
+                                                        }
+                                                    }
+                                                    Err(e) => eprintln!("✗ {}", e),
+                                                }
+                                            }
+                                            KeyCode::KeyO => {
+                                                // Ctrl+O: Load project
+                                                match io::select_load_project_folder() {
+                                                    Ok(path) => {
+                                                        match io::load_project(&path) {
+                                                            Ok((project, layers)) => {
+                                                                if !layers.is_empty() && layers[0].width == c.width && layers[0].height == c.height {
+                                                                    c.pixels = layers[0].pixels.clone();
+                                                                    c.dirty = true;
+                                                                    w.request_redraw();
+                                                                    println!("✓ Project loaded: {} ({} layers)", project.name, layers.len());
+                                                                } else if layers.is_empty() {
+                                                                    eprintln!("✗ Project has no layers");
+                                                                } else {
+                                                                    eprintln!("✗ Layer size mismatch");
+                                                                }
+                                                            }
+                                                            Err(e) => eprintln!("✗ Load failed: {}", e),
+                                                        }
+                                                    }
+                                                    Err(e) => eprintln!("✗ {}", e),
+                                                }
+                                            }
+                                            KeyCode::KeyP => {
+                                                // Ctrl+P: Save project
+                                                match io::select_save_project_folder() {
+                                                    Ok(path) => {
+                                                        let layer = layer::Layer::from_rgba(
+                                                            "canvas".to_string(),
+                                                            c.width,
+                                                            c.height,
+                                                            c.pixels.clone(),
+                                                        );
+                                                        let project_name = std::path::Path::new(&path)
+                                                            .file_name()
+                                                            .and_then(|n| n.to_str())
+                                                            .unwrap_or("Project")
+                                                            .to_string();
+                                                        let mut project = layer::Project::new(project_name, c.width, c.height);
+                                                        project.add_layer_metadata("canvas".to_string(), "layer_000.png".to_string());
+                                                        
+                                                        match io::save_project(&project, &[layer], &path) {
+                                                            Ok(_) => {
+                                                                let folder_name = std::path::Path::new(&path)
+                                                                    .file_name()
+                                                                    .and_then(|n| n.to_str())
+                                                                    .unwrap_or("project");
+                                                                println!("✓ Project saved to {}/", folder_name);
+                                                            }
+                                                            Err(e) => eprintln!("✗ Save failed: {}", e),
+                                                        }
+                                                    }
+                                                    Err(e) => eprintln!("✗ {}", e),
+                                                }
                                             }
                                             _ => {}
                                         }
