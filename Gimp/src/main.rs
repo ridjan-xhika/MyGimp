@@ -59,7 +59,7 @@ fn window_to_canvas(
     Some((x.clamp(0.0, (canvas.width - 1) as f32), y.clamp(0.0, (canvas.height - 1) as f32)))
 }
 
-fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
+fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputState) {
     // Background
     canvas.fill_rect(0, 0, PANEL_WIDTH.min(canvas.width), canvas.height, [230, 230, 230, 255]);
 
@@ -939,7 +939,31 @@ fn main() {
                                 }
                             }
                             WindowEvent::RedrawRequested => {
-                                draw_ui(c, &input.brush, input.brightness);
+                                draw_ui(c, &input.brush, input.brightness, &input);
+                                
+                                // Draw selection rectangle if active
+                                if let (Some(start), Some(end)) = (input.selection_start, input.selection_end) {
+                                    let x1 = start.0.min(end.0);
+                                    let y1 = start.1.min(end.1);
+                                    let x2 = start.0.max(end.0);
+                                    let y2 = start.1.max(end.1);
+                                    
+                                    // Draw selection border (dashed effect with alternating pixels)
+                                    let sel_color = [255, 255, 0, 255]; // Yellow
+                                    for x in x1..=x2 {
+                                        if (x % 4) < 2 {
+                                            if y1 < c.height { c.pixels[y1 as usize * c.stride + x as usize * 4..][..4].copy_from_slice(&sel_color); }
+                                            if y2 < c.height { c.pixels[y2 as usize * c.stride + x as usize * 4..][..4].copy_from_slice(&sel_color); }
+                                        }
+                                    }
+                                    for y in y1..=y2 {
+                                        if (y % 4) < 2 {
+                                            if x1 < c.width { c.pixels[y as usize * c.stride + x1 as usize * 4..][..4].copy_from_slice(&sel_color); }
+                                            if x2 < c.width { c.pixels[y as usize * c.stride + x2 as usize * 4..][..4].copy_from_slice(&sel_color); }
+                                        }
+                                    }
+                                }
+                                
                                 if let Err(e) = g.render(c) {
                                     match e {
                                         wgpu::SurfaceError::Lost => {
