@@ -93,7 +93,7 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     let preview_x = x + (w.saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, preview_y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
 
-    // File operation buttons at bottom (I E S O for Import, Export, Save, Open)
+    // File operation buttons at bottom
     let file_buttons_y = preview_y + UI_BUTTON_H / 2 + UI_GAP;
     let btn_w = (w - UI_GAP) / 2;
     let file_btn_color = [170, 170, 200, 255];
@@ -101,11 +101,24 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     // Import / Export row
     canvas.fill_rect(x, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
+    draw_button_text(canvas, x + 2, file_buttons_y + 6, "📂IN");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 2, file_buttons_y + 6, "💾EX");
     
     // Save / Open row
     let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
     canvas.fill_rect(x, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
+    draw_button_text(canvas, x + 2, second_row_y + 6, "💾SV");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 2, second_row_y + 6, "📖OP");
+    
+    // Pan controls (if large image is loaded)
+    if let Some((img_w, img_h)) = canvas.loaded_image_size {
+        if img_w > canvas.width || img_h > canvas.height {
+            // Show image info
+            let info_y = second_row_y + UI_BUTTON_H + UI_GAP;
+            draw_button_text(canvas, x + 2, info_y, &format!("{}x{}", img_w, img_h));
+        }
+    }
 }
 
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
@@ -237,6 +250,71 @@ fn brightness_value_from_x(x: f32) -> f32 {
     slider_value_from_x(x, brightness_slider_geom(), BRIGHT_MIN, BRIGHT_MAX)
 }
 
+fn draw_button_text(canvas: &mut Canvas, x: u32, y: u32, text: &str) {
+    // Simple text drawing: draw characters as small pixel patterns
+    let text_color = [0, 0, 0, 255];
+    for (i, ch) in text.chars().enumerate() {
+        let char_x = x + i as u32 * 6;
+        draw_char(canvas, char_x, y, ch, text_color);
+    }
+}
+
+fn draw_char(canvas: &mut Canvas, x: u32, y: u32, ch: char, color: [u8; 4]) {
+    // 4x6 pixel character patterns
+    match ch {
+        'I' | 'i' => {
+            canvas.fill_rect(x + 1, y, 2, 6, color);
+        }
+        'N' | 'n' => {
+            canvas.fill_rect(x, y, 1, 6, color);
+            canvas.fill_rect(x + 3, y, 1, 6, color);
+            canvas.fill_rect(x + 1, y + 2, 2, 1, color);
+        }
+        'E' | 'e' => {
+            canvas.fill_rect(x, y, 4, 1, color);
+            canvas.fill_rect(x, y + 2, 4, 1, color);
+            canvas.fill_rect(x, y + 5, 4, 1, color);
+            canvas.fill_rect(x, y, 1, 6, color);
+        }
+        'X' | 'x' => {
+            canvas.fill_rect(x, y, 1, 2, color);
+            canvas.fill_rect(x + 3, y, 1, 2, color);
+            canvas.fill_rect(x + 1, y + 2, 2, 2, color);
+            canvas.fill_rect(x, y + 4, 1, 2, color);
+            canvas.fill_rect(x + 3, y + 4, 1, 2, color);
+        }
+        'S' | 's' => {
+            canvas.fill_rect(x + 1, y, 3, 1, color);
+            canvas.fill_rect(x, y + 1, 2, 1, color);
+            canvas.fill_rect(x + 1, y + 2, 3, 1, color);
+            canvas.fill_rect(x + 2, y + 3, 2, 1, color);
+            canvas.fill_rect(x + 1, y + 4, 3, 1, color);
+        }
+        'V' | 'v' => {
+            canvas.fill_rect(x, y, 1, 4, color);
+            canvas.fill_rect(x + 3, y, 1, 4, color);
+            canvas.fill_rect(x + 1, y + 5, 2, 1, color);
+        }
+        'O' | 'o' => {
+            canvas.fill_rect(x + 1, y, 2, 1, color);
+            canvas.fill_rect(x + 1, y + 5, 2, 1, color);
+            canvas.fill_rect(x, y, 1, 6, color);
+            canvas.fill_rect(x + 3, y, 1, 6, color);
+        }
+        'P' | 'p' => {
+            canvas.fill_rect(x, y, 1, 6, color);
+            canvas.fill_rect(x + 1, y, 3, 1, color);
+            canvas.fill_rect(x + 3, y + 1, 1, 1, color);
+            canvas.fill_rect(x + 1, y + 2, 3, 1, color);
+        }
+        '📂' | '💾' | '📖' => {
+            // For emoji, draw a simple icon
+            canvas.fill_rect(x, y, 4, 6, color);
+        }
+        _ => {}
+    }
+}
+
 fn draw_slider(canvas: &mut Canvas, geom: SliderGeom, value: f32, min: f32, max: f32, label: char) {
     let track_color = [200, 200, 200, 255];
     let knob_color = [60, 60, 60, 255];
@@ -351,14 +429,9 @@ fn handle_panel_action(
                 Ok(path) => {
                     match io::load_image(&path) {
                         Ok(img_layer) => {
-                            if img_layer.width == canvas.width && img_layer.height == canvas.height {
-                                canvas.pixels = img_layer.pixels;
-                                canvas.dirty = true;
-                                window.request_redraw();
-                                println!("✓ Imported");
-                            } else {
-                                eprintln!("✗ Size mismatch");
-                            }
+                            canvas.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
+                            window.request_redraw();
+                            println!("✓ Imported ({}x{})", img_layer.width, img_layer.height);
                         }
                         Err(e) => eprintln!("✗ Import failed: {}", e),
                     }
@@ -384,7 +457,7 @@ fn handle_panel_action(
                         "canvas".to_string(),
                         canvas.width,
                         canvas.height,
-                        canvas.pixels.clone(),
+                        canvas.extract_tight_pixels(),
                     );
                     let project_name = std::path::Path::new(&path)
                         .file_name()
@@ -408,8 +481,7 @@ fn handle_panel_action(
                     match io::load_project(&path) {
                         Ok((project, layers)) => {
                             if !layers.is_empty() && layers[0].width == canvas.width && layers[0].height == canvas.height {
-                                canvas.pixels = layers[0].pixels.clone();
-                                canvas.dirty = true;
+                                canvas.load_pixels(layers[0].width, layers[0].height, layers[0].pixels.clone());
                                 window.request_redraw();
                                 println!("✓ Loaded: {}", project.name);
                             } else {
@@ -462,7 +534,32 @@ fn main() {
                             WindowEvent::Resized(new_size) => {
                                 window_size = new_size;
                                 g.resize(new_size);
+                                
+                                // Preserve old canvas pixels when resizing
+                                let old_pixels = c.pixels.clone();
+                                let old_width = c.width;
+                                let old_height = c.height;
+                                let old_stride = c.stride;
+                                
+                                // Create new canvas
                                 *c = Canvas::new(new_size.width.max(1), new_size.height.max(1));
+                                
+                                // Copy old pixels to new canvas (preserve what fits)
+                                let copy_width = old_width.min(c.width);
+                                let copy_height = old_height.min(c.height);
+                                for y in 0..copy_height {
+                                    let old_row_offset = y as usize * old_stride;
+                                    let new_row_offset = y as usize * c.stride;
+                                    let row_bytes = copy_width as usize * 4;
+                                    
+                                    if old_row_offset + row_bytes <= old_pixels.len() 
+                                        && new_row_offset + row_bytes <= c.pixels.len() {
+                                        c.pixels[new_row_offset..new_row_offset + row_bytes]
+                                            .copy_from_slice(&old_pixels[old_row_offset..old_row_offset + row_bytes]);
+                                    }
+                                }
+                                c.dirty = true;
+                                
                                 w.request_redraw();
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
@@ -518,19 +615,13 @@ fn main() {
                                                     Ok(path) => {
                                                         match io::load_image(&path) {
                                                             Ok(img_layer) => {
-                                                                if img_layer.width == c.width && img_layer.height == c.height {
-                                                                    c.pixels = img_layer.pixels;
-                                                                    c.dirty = true;
-                                                                    w.request_redraw();
-                                                                    let filename = std::path::Path::new(&path)
-                                                                        .file_name()
-                                                                        .and_then(|n| n.to_str())
-                                                                        .unwrap_or("image");
-                                                                    println!("✓ Imported {}", filename);
-                                                                } else {
-                                                                    eprintln!("✗ Image size ({}x{}) doesn't match canvas ({}x{})",
-                                                                        img_layer.width, img_layer.height, c.width, c.height);
-                                                                }
+                                                                c.paste_image(img_layer.width, img_layer.height, &img_layer.pixels);
+                                                                w.request_redraw();
+                                                                let filename = std::path::Path::new(&path)
+                                                                    .file_name()
+                                                                    .and_then(|n| n.to_str())
+                                                                    .unwrap_or("image");
+                                                                println!("✓ Imported {}", filename);
                                                             }
                                                             Err(e) => eprintln!("✗ Import failed: {}", e),
                                                         }
@@ -545,8 +636,7 @@ fn main() {
                                                         match io::load_project(&path) {
                                                             Ok((project, layers)) => {
                                                                 if !layers.is_empty() && layers[0].width == c.width && layers[0].height == c.height {
-                                                                    c.pixels = layers[0].pixels.clone();
-                                                                    c.dirty = true;
+                                                                    c.load_pixels(layers[0].width, layers[0].height, layers[0].pixels.clone());
                                                                     w.request_redraw();
                                                                     println!("✓ Project loaded: {} ({} layers)", project.name, layers.len());
                                                                 } else if layers.is_empty() {
@@ -569,7 +659,7 @@ fn main() {
                                                             "canvas".to_string(),
                                                             c.width,
                                                             c.height,
-                                                            c.pixels.clone(),
+                                                            c.extract_tight_pixels(),
                                                         );
                                                         let project_name = std::path::Path::new(&path)
                                                             .file_name()

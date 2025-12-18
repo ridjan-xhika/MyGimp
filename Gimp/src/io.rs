@@ -55,7 +55,7 @@ pub fn load_image(path: &str) -> IoResult<Layer> {
         .map_err(|e| format!("Failed to load image {}: {}", path, e))?;
     
     let rgba_img = img.to_rgba8();
-    let (width, height) = rgba_img.dimensions();
+    let (_width, _height) = rgba_img.dimensions();
     let pixels = rgba_img.to_vec();
     
     let filename = Path::new(path)
@@ -64,7 +64,43 @@ pub fn load_image(path: &str) -> IoResult<Layer> {
         .unwrap_or("imported")
         .to_string();
     
-    Ok(Layer::from_rgba(filename, width, height, pixels))
+    Ok(Layer::from_rgba(filename, _width, _height, pixels))
+}
+
+/// Load and resize image to fit canvas dimensions
+pub fn load_image_scaled(path: &str, target_width: u32, target_height: u32) -> IoResult<Layer> {
+    let img = image::open(path)
+        .map_err(|e| format!("Failed to load image {}: {}", path, e))?;
+    
+    let rgba_img = img.to_rgba8();
+    
+    // If dimensions match, return as-is
+    if rgba_img.width() == target_width && rgba_img.height() == target_height {
+        let pixels = rgba_img.to_vec();
+        let filename = Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("imported")
+            .to_string();
+        return Ok(Layer::from_rgba(filename, target_width, target_height, pixels));
+    }
+    
+    // Resize the image using nearest neighbor (fast)
+    let resized = image::imageops::resize(
+        &rgba_img,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Nearest,
+    );
+    
+    let pixels = resized.to_vec();
+    let filename = Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("imported")
+        .to_string();
+    
+    Ok(Layer::from_rgba(filename, target_width, target_height, pixels))
 }
 
 /// Export a Layer as a PNG file.
@@ -81,10 +117,13 @@ pub fn export_layer_as_png(layer: &Layer, path: &str) -> IoResult<()> {
 
 /// Export a Canvas as a PNG file.
 pub fn export_canvas_as_png(canvas: &Canvas, path: &str) -> IoResult<()> {
+    // Extract tight-packed pixels from stride-aligned canvas
+    let tight_pixels = canvas.extract_tight_pixels();
+    
     let img: RgbaImage = ImageBuffer::from_raw(
         canvas.width,
         canvas.height,
-        canvas.pixels.clone(),
+        tight_pixels,
     ).ok_or("Failed to create image buffer".to_string())?;
     
     img.save(path)
