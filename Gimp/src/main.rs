@@ -107,7 +107,7 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
     }
     
     // Right side of toolbar: File operations with icons + filters
-    let file_x = canvas.width.saturating_sub(180);
+    let file_x = canvas.width.saturating_sub(240);
     let file_btns = [
         (file_x, &icons.import),           // Import
         (file_x + 30, &icons.export),      // Export
@@ -115,6 +115,8 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputSta
         (file_x + 90, &icons.brightness),  // Brightness filter
         (file_x + 120, &icons.invert),     // Invert filter
         (file_x + 150, &icons.grayscale),  // Grayscale filter (toggle)
+        (file_x + 180, &icons.brightness), // Remove brightness (reuse icon)
+        (file_x + 210, &icons.grayscale),  // Remove grayscale (reuse icon)
     ];
     
     for (x, icon) in &file_btns {
@@ -351,7 +353,7 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
         }
         
         // File operations + filters in toolbar
-        let file_x = canvas.width.saturating_sub(180);
+        let file_x = canvas.width.saturating_sub(240);
         if x >= file_x && x < canvas.width {
             let rel_x = x - file_x;
             if rel_x < 24 { return Some(PanelAction::FileImport); }
@@ -360,6 +362,8 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             else if rel_x < 114 { return Some(PanelAction::FilterBrightness); }
             else if rel_x < 144 { return Some(PanelAction::FilterInvert); }
             else if rel_x < 174 { return Some(PanelAction::FilterGrayscale); }
+            else if rel_x < 204 { return Some(PanelAction::RemoveBrightness); }
+            else if rel_x < 234 { return Some(PanelAction::RemoveGrayscale); }
         }
 
         // Brush size slider
@@ -549,6 +553,8 @@ enum PanelAction {
     FilterInvert,
     FilterGrayscale,
     FilterBrightness,
+    RemoveGrayscale,
+    RemoveBrightness,
     FilterBlur,
     ToggleColorPicker,
     OpenColorPickerForeground,
@@ -625,18 +631,20 @@ fn handle_panel_action(
         PanelAction::FileSave => {
             match io::select_save_project_folder() {
                 Ok(path) => {
+                    let image_pixels = canvas.extract_image_pixels();
+                    let (width, height) = canvas.loaded_image_size.unwrap_or((canvas.width, canvas.height));
                     let layer = layer::Layer::from_rgba(
                         "canvas".to_string(),
-                        canvas.width,
-                        canvas.height,
-                        canvas.extract_tight_pixels(),
+                        width,
+                        height,
+                        image_pixels,
                     );
                     let project_name = std::path::Path::new(&path)
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("Project")
                         .to_string();
-                    let mut project = layer::Project::new(project_name, canvas.width, canvas.height);
+                    let mut project = layer::Project::new(project_name, width, height);
                     project.add_layer_metadata("canvas".to_string(), "layer_000.png".to_string());
                     
                     match io::save_project(&project, &[layer], &path) {
@@ -688,6 +696,18 @@ fn handle_panel_action(
             history.push(canvas);
             window.request_redraw();
             println!("✓ Applied Brightness filter");
+        }
+        PanelAction::RemoveBrightness => {
+            canvas.remove_brightness();
+            history.push(canvas);
+            window.request_redraw();
+            println!("✓ Removed Brightness");
+        }
+        PanelAction::RemoveGrayscale => {
+            canvas.remove_grayscale();
+            history.push(canvas);
+            window.request_redraw();
+            println!("✓ Removed Grayscale");
         }
         PanelAction::FilterBlur => {
             canvas.filter_blur(2);
@@ -1001,18 +1021,20 @@ fn main() {
                                                 // Ctrl+P: Save project
                                                 match io::select_save_project_folder() {
                                                     Ok(path) => {
+                                                        let image_pixels = c.extract_image_pixels();
+                                                        let (width, height) = c.loaded_image_size.unwrap_or((c.width, c.height));
                                                         let layer = layer::Layer::from_rgba(
                                                             "canvas".to_string(),
-                                                            c.width,
-                                                            c.height,
-                                                            c.extract_tight_pixels(),
+                                                            width,
+                                                            height,
+                                                            image_pixels,
                                                         );
                                                         let project_name = std::path::Path::new(&path)
                                                             .file_name()
                                                             .and_then(|n| n.to_str())
                                                             .unwrap_or("Project")
                                                             .to_string();
-                                                        let mut project = layer::Project::new(project_name, c.width, c.height);
+                                                        let mut project = layer::Project::new(project_name, width, height);
                                                         project.add_layer_metadata("canvas".to_string(), "layer_000.png".to_string());
                                                         
                                                         match io::save_project(&project, &[layer], &path) {

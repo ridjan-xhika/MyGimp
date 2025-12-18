@@ -12,6 +12,7 @@ pub struct Canvas {
     pub drawing_layer: Vec<u8>, // User drawings layer in IMAGE-SPACE coordinates
     pub pan_offset: (i32, i32), // Store pan offset so drawings can use it
     pub grayscale_active: bool, // Toggle state for grayscale filter
+    pub original_image_backup: Option<Vec<u8>>, // Backup before filters for restoration
 }
 
 impl Canvas {
@@ -31,6 +32,7 @@ impl Canvas {
             drawing_layer,
             pan_offset: (0, 0),
             grayscale_active: false,
+            original_image_backup: None,
         }
     }
 
@@ -70,6 +72,40 @@ impl Canvas {
         tight_pixels
     }
 
+    /// Extract the actual image content (background + drawing layer) without UI overlay for export
+    pub fn extract_image_pixels(&self) -> Vec<u8> {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let mut result = vec![255u8; (img_w * img_h * 4) as usize];
+            
+            // Copy background image if present
+            if let Some(img_data) = &self.loaded_image_data {
+                result.copy_from_slice(img_data);
+            }
+            
+            // Composite drawing layer on top
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let idx = (y as usize * img_stride) + (x as usize * 4);
+                    if idx + 3 < self.drawing_layer.len() {
+                        let alpha = self.drawing_layer[idx + 3] as f32 / 255.0;
+                        if alpha > 0.0 && idx + 3 < result.len() {
+                            for c in 0..3 {
+                                let bg = result[idx + c] as f32;
+                                let fg = self.drawing_layer[idx + c] as f32;
+                                result[idx + c] = (fg * alpha + bg * (1.0 - alpha)) as u8;
+                            }
+                        }
+                    }
+                }
+            }
+            result
+        } else {
+            // Fallback to canvas size if no image loaded
+            self.extract_tight_pixels()
+        }
+    }
+
     /// Paste an image onto the canvas with offset (for panning large images)
     /// This updates the background layer only, not the drawing layer
     pub fn paste_image_with_offset(&mut self, img_width: u32, img_height: u32, img_pixels: &[u8], offset_x: i32, offset_y: i32) {
@@ -78,6 +114,11 @@ impl Canvas {
         self.loaded_image_size = Some((img_width, img_height));
         self.loaded_image_data = Some(img_pixels.to_vec());
         self.pan_offset = (offset_x, offset_y);
+        
+        // Backup original image on first load
+        if is_new_image {
+            self.original_image_backup = Some(img_pixels.to_vec());
+        }
         
         // Initialize drawing layer to match image size if new image
         if is_new_image {
@@ -112,6 +153,10 @@ impl Canvas {
         
         // Composite drawing layer on top
         self.composite_layers();
+        // If grayscale is active, re-apply to the display buffer so panning keeps the effect
+        if self.grayscale_active {
+            self.apply_grayscale_to_display();
+        }
         self.dirty = true;
     }
     
@@ -539,6 +584,19 @@ impl Canvas {
         self.dirty = true;
     }
     
+    /// Remove grayscale by restoring from original backup
+    pub fn remove_grayscale(&mut self) {
+        if let Some(original) = self.original_image_backup.clone() {
+            self.loaded_image_data = Some(original.clone());
+            if let Some((img_w, img_h)) = self.loaded_image_size {
+                let (ox, oy) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &original, ox, oy);
+            }
+            self.grayscale_active = false;
+            self.dirty = true;
+        }
+    }
+    
     /// Apply grayscale filter to drawing layer
     pub fn filter_grayscale(&mut self) {
         // Toggle grayscale: if active, restore the original loaded image into pixels;
@@ -569,6 +627,33 @@ impl Canvas {
         self.grayscale_active = true;
         self.dirty = true;
     }
+
+    /// Helper: apply grayscale to the current display buffer without toggling state
+    fn apply_grayscale_to_display(&mut self) {
+        for idx in (0..self.pixels.len()).step_by(4) {
+            if idx + 3 < self.pixels.len() && self.pixels[idx + 3] > 0 {
+                let r = self.pixels[idx] as f32;
+                let g = self.pixels[idx + 1] as f32;
+                let b = self.pixels[idx + 2] as f32;
+                let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+                self.pixels[idx] = gray;
+                self.pixels[idx + 1] = gray;
+                self.pixels[idx + 2] = gray;
+            }
+        }
+    }
+    
+    /// Remove brightness by restoring from original backup
+    pub fn remove_brightness(&mut self) {
+        if let Some(original) = self.original_image_backup.clone() {
+            self.loaded_image_data = Some(original.clone());
+            if let Some((img_w, img_h)) = self.loaded_image_size {
+                let (ox, oy) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &original, ox, oy);
+            }
+            self.dirty = true;
+        }
+    }
     
     /// Apply brightness/contrast adjustment to drawing layer
     pub fn filter_brightness_contrast(&mut self, brightness: f32, contrast: f32) {
@@ -589,6 +674,19 @@ impl Canvas {
                                 let adjusted = contrasted + brightness;
                                 self.drawing_layer[idx + i] = adjusted.clamp(0.0, 255.0) as u8;
                             }
+                        }
+                    }
+                }
+            }
+            // Also apply brightness/contrast to the background image so panning keeps the effect
+            if let Some(ref mut img_data) = self.loaded_image_data {
+                for i in (0..img_data.len()).step_by(4) {
+                    if i + 3 < img_data.len() {
+                        for c in 0..3 {
+                            let pixel = img_data[i + c] as f32;
+                            let contrasted = factor * (pixel - 128.0) + 128.0;
+                            let adjusted = contrasted + brightness;
+                            img_data[i + c] = adjusted.clamp(0.0, 255.0) as u8;
                         }
                     }
                 }

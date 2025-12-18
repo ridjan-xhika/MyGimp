@@ -117,13 +117,14 @@ pub fn export_layer_as_png(layer: &Layer, path: &str) -> IoResult<()> {
 
 /// Export a Canvas as a PNG file.
 pub fn export_canvas_as_png(canvas: &Canvas, path: &str) -> IoResult<()> {
-    // Extract tight-packed pixels from stride-aligned canvas
-    let tight_pixels = canvas.extract_tight_pixels();
+    // Extract actual image content (without UI overlay)
+    let image_pixels = canvas.extract_image_pixels();
+    let (width, height) = canvas.loaded_image_size.unwrap_or((canvas.width, canvas.height));
     
     let img: RgbaImage = ImageBuffer::from_raw(
-        canvas.width,
-        canvas.height,
-        tight_pixels,
+        width,
+        height,
+        image_pixels,
     ).ok_or("Failed to create image buffer".to_string())?;
     
     img.save(path)
