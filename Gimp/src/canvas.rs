@@ -454,6 +454,157 @@ impl Canvas {
         
         self.dirty = true;
     }
+    
+    /// Apply invert filter to drawing layer
+    pub fn filter_invert(&mut self) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let idx = (y as usize * img_stride) + (x as usize * 4);
+                    if idx + 3 < self.drawing_layer.len() {
+                        // Only invert if pixel has been drawn on (has some alpha)
+                        if self.drawing_layer[idx + 3] > 0 {
+                            self.drawing_layer[idx] = 255 - self.drawing_layer[idx];
+                            self.drawing_layer[idx + 1] = 255 - self.drawing_layer[idx + 1];
+                            self.drawing_layer[idx + 2] = 255 - self.drawing_layer[idx + 2];
+                        }
+                    }
+                }
+            }
+            // Re-render
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                let (offset_x, offset_y) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
+        self.dirty = true;
+    }
+    
+    /// Apply grayscale filter to drawing layer
+    pub fn filter_grayscale(&mut self) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let idx = (y as usize * img_stride) + (x as usize * 4);
+                    if idx + 3 < self.drawing_layer.len() {
+                        if self.drawing_layer[idx + 3] > 0 {
+                            let r = self.drawing_layer[idx] as f32;
+                            let g = self.drawing_layer[idx + 1] as f32;
+                            let b = self.drawing_layer[idx + 2] as f32;
+                            // Luminosity method
+                            let gray = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+                            self.drawing_layer[idx] = gray;
+                            self.drawing_layer[idx + 1] = gray;
+                            self.drawing_layer[idx + 2] = gray;
+                        }
+                    }
+                }
+            }
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                let (offset_x, offset_y) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
+        self.dirty = true;
+    }
+    
+    /// Apply brightness/contrast adjustment to drawing layer
+    pub fn filter_brightness_contrast(&mut self, brightness: f32, contrast: f32) {
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast));
+            
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let idx = (y as usize * img_stride) + (x as usize * 4);
+                    if idx + 3 < self.drawing_layer.len() {
+                        if self.drawing_layer[idx + 3] > 0 {
+                            for i in 0..3 {
+                                let pixel = self.drawing_layer[idx + i] as f32;
+                                // Apply contrast
+                                let contrasted = factor * (pixel - 128.0) + 128.0;
+                                // Apply brightness
+                                let adjusted = contrasted + brightness;
+                                self.drawing_layer[idx + i] = adjusted.clamp(0.0, 255.0) as u8;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                let (offset_x, offset_y) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
+        self.dirty = true;
+    }
+    
+    /// Apply box blur filter to drawing layer
+    pub fn filter_blur(&mut self, radius: u32) {
+        if radius == 0 {
+            return;
+        }
+        if let Some((img_w, img_h)) = self.loaded_image_size {
+            let img_stride = img_w as usize * 4;
+            let mut temp_layer = self.drawing_layer.clone();
+            
+            for y in 0..img_h {
+                for x in 0..img_w {
+                    let idx = (y as usize * img_stride) + (x as usize * 4);
+                    if idx + 3 >= self.drawing_layer.len() {
+                        continue;
+                    }
+                    
+                    // Only blur pixels that have been drawn on
+                    if self.drawing_layer[idx + 3] == 0 {
+                        continue;
+                    }
+                    
+                    let mut sum_r = 0u32;
+                    let mut sum_g = 0u32;
+                    let mut sum_b = 0u32;
+                    let mut sum_a = 0u32;
+                    let mut count = 0u32;
+                    
+                    // Box blur: average pixels in radius
+                    let min_y = y.saturating_sub(radius);
+                    let max_y = (y + radius).min(img_h - 1);
+                    let min_x = x.saturating_sub(radius);
+                    let max_x = (x + radius).min(img_w - 1);
+                    
+                    for by in min_y..=max_y {
+                        for bx in min_x..=max_x {
+                            let bidx = (by as usize * img_stride) + (bx as usize * 4);
+                            if bidx + 3 < self.drawing_layer.len() {
+                                sum_r += self.drawing_layer[bidx] as u32;
+                                sum_g += self.drawing_layer[bidx + 1] as u32;
+                                sum_b += self.drawing_layer[bidx + 2] as u32;
+                                sum_a += self.drawing_layer[bidx + 3] as u32;
+                                count += 1;
+                            }
+                        }
+                    }
+                    
+                    if count > 0 {
+                        temp_layer[idx] = (sum_r / count) as u8;
+                        temp_layer[idx + 1] = (sum_g / count) as u8;
+                        temp_layer[idx + 2] = (sum_b / count) as u8;
+                        temp_layer[idx + 3] = (sum_a / count) as u8;
+                    }
+                }
+            }
+            
+            self.drawing_layer = temp_layer;
+            
+            if let Some(img_data) = self.loaded_image_data.clone() {
+                let (offset_x, offset_y) = self.pan_offset;
+                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
+            }
+        }
+        self.dirty = true;
+    }
 }
 
 fn aligned_stride(width: u32) -> usize {
