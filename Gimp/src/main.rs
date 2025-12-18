@@ -664,7 +664,7 @@ fn main() {
                                                     Err(e) => eprintln!("✗ {}", e),
                                                 }
                                             }
-                                            KeyCode::KeyI => {
+                                            KeyCode::KeyI if ctrl_pressed => {
                                                 // Ctrl+I: Import PNG
                                                 match io::select_image_file() {
                                                     Ok(path) => {
@@ -685,7 +685,7 @@ fn main() {
                                                     Err(e) => eprintln!("✗ {}", e),
                                                 }
                                             }
-                                            KeyCode::KeyO => {
+                                            KeyCode::KeyO if ctrl_pressed => {
                                                 // Ctrl+O: Load project
                                                 match io::select_load_project_folder() {
                                                     Ok(path) => {
@@ -707,7 +707,7 @@ fn main() {
                                                     Err(e) => eprintln!("✗ {}", e),
                                                 }
                                             }
-                                            KeyCode::KeyP => {
+                                            KeyCode::KeyP if ctrl_pressed => {
                                                 // Ctrl+P: Save project
                                                 match io::select_save_project_folder() {
                                                     Ok(path) => {
