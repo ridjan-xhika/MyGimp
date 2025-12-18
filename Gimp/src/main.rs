@@ -93,23 +93,47 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32) {
     let preview_x = x + (w.saturating_sub(preview_w)) / 2;
     canvas.fill_rect(preview_x, preview_y, preview_w.max(4), UI_BUTTON_H / 2, brush.color);
 
-    // File operation buttons at bottom
-    let file_buttons_y = preview_y + UI_BUTTON_H / 2 + UI_GAP;
+    // Tool selection buttons
+    let tools_y = preview_y + UI_BUTTON_H / 2 + UI_GAP;
+    let tool_btn_w = (w - UI_GAP) / 2;
+    let tool_btn_h = 18;
+    let tool_gap = 3;
+    
+    let tools = [
+        (input::Tool::Brush, "Brush"),
+        (input::Tool::Eraser, "Eraser"),
+        (input::Tool::FillBucket, "Fill"),
+        (input::Tool::ColorPicker, "Picker"),
+        (input::Tool::RectSelect, "Select"),
+        (input::Tool::Move, "Move"),
+    ];
+    
+    let mut tool_y = tools_y;
+    for (tool, name) in &tools {
+        let is_active = input.current_tool == *tool;
+        let btn_color = if is_active { [100, 150, 255, 255] } else { [180, 180, 180, 255] };
+        canvas.fill_rect(x, tool_y, w, tool_btn_h, btn_color);
+        draw_button_text(canvas, x + 4, tool_y + 4, name);
+        tool_y += tool_btn_h + tool_gap;
+    }
+
+    // File operation buttons
+    let file_buttons_y = tool_y + UI_GAP;
     let btn_w = (w - UI_GAP) / 2;
     let file_btn_color = [170, 170, 200, 255];
     
     // Import / Export row
     canvas.fill_rect(x, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, file_buttons_y, btn_w, UI_BUTTON_H, file_btn_color);
-    draw_button_text(canvas, x + 4, file_buttons_y + 6, "IN");
-    draw_button_text(canvas, x + btn_w + UI_GAP + 4, file_buttons_y + 6, "EX");
+    draw_button_text(canvas, x + 4, file_buttons_y + 6, "Import");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 4, file_buttons_y + 6, "Export");
     
     // Save / Open row
     let second_row_y = file_buttons_y + UI_BUTTON_H + UI_GAP;
     canvas.fill_rect(x, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
     canvas.fill_rect(x + btn_w + UI_GAP, second_row_y, btn_w, UI_BUTTON_H, file_btn_color);
-    draw_button_text(canvas, x + 4, second_row_y + 6, "SV");
-    draw_button_text(canvas, x + btn_w + UI_GAP + 4, second_row_y + 6, "OP");
+    draw_button_text(canvas, x + 4, second_row_y + 6, "Save");
+    draw_button_text(canvas, x + btn_w + UI_GAP + 4, second_row_y + 6, "Open");
     
     // Pan controls (if large image is loaded)
     if let Some((img_w, img_h)) = canvas.loaded_image_size {
