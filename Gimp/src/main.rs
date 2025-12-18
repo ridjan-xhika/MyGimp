@@ -826,12 +826,51 @@ fn main() {
                                             return;
                                         }
                                         if pos.0 >= PANEL_WIDTH as f32 {
-                                            input.drawing = true;
+                                            // Handle different tools
+                                            match input.current_tool {
+                                                input::Tool::Brush | input::Tool::Eraser => {
+                                                    input.drawing = true;
+                                                }
+                                                input::Tool::FillBucket => {
+                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
+                                                    let canvas_y = pos.1 as u32;
+                                                    c.flood_fill(canvas_x, canvas_y, input.brush.color);
+                                                    w.request_redraw();
+                                                }
+                                                input::Tool::ColorPicker => {
+                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
+                                                    let canvas_y = pos.1 as u32;
+                                                    if let Some(color) = c.get_pixel(canvas_x, canvas_y) {
+                                                        input.set_brush_color(color);
+                                                        println!("Picked color: {:?}", color);
+                                                    }
+                                                    w.request_redraw();
+                                                }
+                                                input::Tool::RectSelect => {
+                                                    let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
+                                                    let canvas_y = pos.1 as u32;
+                                                    input.selection_start = Some((canvas_x, canvas_y));
+                                                    input.selection_end = None;
+                                                    input.drawing = true;
+                                                }
+                                                input::Tool::Move => {
+                                                    input.drawing = true;
+                                                }
+                                            }
                                         }
                                     }
                                 } else {
+                                    // Mouse released
+                                    if input.current_tool == input::Tool::Move && input.drawing {
+                                        // Apply move if we dragged
+                                        if let (Some(start), Some(end)) = (input.last_pos, input.last_pos) {
+                                            // Movement was already applied during drag
+                                        }
+                                    }
                                     input.set_slider_drag(None);
                                     input.stop_drawing();
+                                    input.selection_start = None;
+                                    input.selection_end = None;
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {
