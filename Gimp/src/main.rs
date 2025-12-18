@@ -383,6 +383,7 @@ enum PanelAction {
     FileExport,
     FileSave,
     FileOpen,
+    Tool(input::Tool),
 }
 
 fn handle_panel_action(
