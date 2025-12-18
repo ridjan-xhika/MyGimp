@@ -578,12 +578,43 @@ fn main() {
                                 if event.state == ElementState::Pressed {
                                     if let PhysicalKey::Code(code) = event.physical_key {
                                         match code {
+                                            // Check zoom first (with shift modifier)
+                                            KeyCode::PageUp | KeyCode::Equal if shift_pressed => {
+                                                // Zoom in (Shift+= or Page Up)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            KeyCode::PageDown | KeyCode::Minus if shift_pressed => {
+                                                // Zoom out (Shift+- or Page Down)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
+                                                    c.repan_image(input.pan_offset.0, input.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            KeyCode::Digit0 if shift_pressed => {
+                                                // Reset zoom to 100% (Shift+0)
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = 1.0;
+                                                    input.pan_offset = (0, 0);
+                                                    c.repan_image(0, 0);
+                                                    w.request_redraw();
+                                                    println!("Zoom: 100%");
+                                                }
+                                            }
+                                            // Color palette selection
                                             KeyCode::Digit1 => input.set_brush_color(PALETTE[0]),
                                             KeyCode::Digit2 => input.set_brush_color(PALETTE[1]),
                                             KeyCode::Digit3 => input.set_brush_color(PALETTE[2]),
                                             KeyCode::Digit4 => input.set_brush_color(PALETTE[3]),
-                                            KeyCode::Minus => input.adjust_brush_radius(-1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
-                                            KeyCode::Equal => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            // Brush size adjustments (without shift)
+                                            KeyCode::Minus if !shift_pressed => input.adjust_brush_radius(-1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            KeyCode::Equal if !shift_pressed => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketLeft => input.adjust_brush_radius(-2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::ArrowLeft => {
