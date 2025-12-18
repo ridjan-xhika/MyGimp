@@ -587,57 +587,96 @@ impl Canvas {
     /// Blur a circular area at (x, y) with the given radius
     /// Averages neighboring pixels and blends the result back
     pub fn blur_circle(&mut self, x: f32, y: f32, radius: f32) {
-        if let Some((img_w, img_h)) = self.loaded_image_size {
-            let img_stride = img_w as usize * 4;
-            let r = radius.ceil() as i32;
-            let center_x = x as i32;
-            let center_y = y as i32;
+        if self.loaded_image_size.is_none() {
+            return; // No image loaded
+        }
+        
+        // Cap radius to prevent UI freeze on huge blur areas
+        let clamped_radius = radius.min(48.0);
+        
+        let r = clamped_radius.ceil() as i32;
+        let center_x = x as i32;
+        let center_y = y as i32;
+        
+        // Reduce blur sample radius for speed (proportional to brush size, but capped)
+        let blur_radius = ((clamped_radius * 0.3).max(1.0)).min(8.0) as i32;
+        
+        // Define the affected region
+        let x_min = (center_x - r).max(0) as u32;
+        let x_max = (center_x + r).min(self.width as i32 - 1) as u32;
+        let y_min = (center_y - r).max(0) as u32;
+        let y_max = (center_y + r).min(self.height as i32 - 1) as u32;
+        
+        let region_width = (x_max - x_min + 1) as usize;
+        let region_height = (y_max - y_min + 1) as usize;
+        
+        // Early exit if region is too small
+        if region_width == 0 || region_height == 0 {
+            return;
+        }
+        
+        // Create a temporary buffer for just the blur region
+        let mut temp_region = vec![0u8; region_width * region_height * 4];
+        
+        // Copy the region to temp buffer
+        for ry in 0..region_height {
+            let src_y = (y_min + ry as u32) as usize;
+            let src_offset = src_y * self.stride + (x_min as usize * 4);
+            let dst_offset = ry * region_width * 4;
+            let copy_size = region_width * 4;
             
-            // Blur each pixel in the circle
-            for py in (center_y - r).max(0)..=(center_y + r).min(img_h as i32 - 1) {
-                for px in (center_x - r).max(0)..=(center_x + r).min(img_w as i32 - 1) {
-                    let dx = (px - center_x) as f32;
-                    let dy = (py - center_y) as f32;
-                    let dist_sq = dx * dx + dy * dy;
+            if src_offset + copy_size <= self.pixels.len() && dst_offset + copy_size <= temp_region.len() {
+                temp_region[dst_offset..dst_offset + copy_size]
+                    .copy_from_slice(&self.pixels[src_offset..src_offset + copy_size]);
+            }
+        }
+        
+        // Blur each pixel in the circle
+        for py in y_min..=y_max {
+            for px in x_min..=x_max {
+                let dx = (px as i32 - center_x) as f32;
+                let dy = (py as i32 - center_y) as f32;
+                let dist_sq = dx * dx + dy * dy;
+                
+                // Only blur pixels within the radius
+                if dist_sq <= clamped_radius * clamped_radius {
+                    let mut sum_r = 0u32;
+                    let mut sum_g = 0u32;
+                    let mut sum_b = 0u32;
+                    let mut sum_a = 0u32;
+                    let mut count = 0u32;
                     
-                    // Only blur pixels within the radius
-                    if dist_sq <= radius * radius {
-                        let blur_radius = (radius * 0.5).max(1.0) as i32;
-                        let mut sum_r = 0u32;
-                        let mut sum_g = 0u32;
-                        let mut sum_b = 0u32;
-                        let mut sum_a = 0u32;
-                        let mut count = 0u32;
-                        
-                        // Sample nearby pixels
-                        for by in (py - blur_radius).max(0)..=(py + blur_radius).min(img_h as i32 - 1) {
-                            for bx in (px - blur_radius).max(0)..=(px + blur_radius).min(img_w as i32 - 1) {
-                                let bidx = (by as usize * img_stride) + (bx as usize * 4);
-                                if bidx + 3 < self.pixels.len() {
-                                    sum_r += self.pixels[bidx] as u32;
-                                    sum_g += self.pixels[bidx + 1] as u32;
-                                    sum_b += self.pixels[bidx + 2] as u32;
-                                    sum_a += self.pixels[bidx + 3] as u32;
-                                    count += 1;
-                                }
+                    // Sample nearby pixels from the temp region (limited range for speed)
+                    for by in (py as i32 - blur_radius).max(y_min as i32)..=(py as i32 + blur_radius).min(y_max as i32) {
+                        for bx in (px as i32 - blur_radius).max(x_min as i32)..=(px as i32 + blur_radius).min(x_max as i32) {
+                            let ry = (by - y_min as i32) as usize;
+                            let rx = (bx - x_min as i32) as usize;
+                            let tidx = (ry * region_width + rx) * 4;
+                            
+                            if tidx + 3 < temp_region.len() {
+                                sum_r += temp_region[tidx] as u32;
+                                sum_g += temp_region[tidx + 1] as u32;
+                                sum_b += temp_region[tidx + 2] as u32;
+                                sum_a += temp_region[tidx + 3] as u32;
+                                count += 1;
                             }
                         }
+                    }
+                    
+                    if count > 0 {
+                        let avg_r = (sum_r / count) as u8;
+                        let avg_g = (sum_g / count) as u8;
+                        let avg_b = (sum_b / count) as u8;
+                        let avg_a = (sum_a / count) as u8;
                         
-                        if count > 0 {
-                            let avg_r = (sum_r / count) as u8;
-                            let avg_g = (sum_g / count) as u8;
-                            let avg_b = (sum_b / count) as u8;
-                            let avg_a = (sum_a / count) as u8;
-                            
-                            // Blend the blurred pixel back
-                            let idx = (py as usize * img_stride) + (px as usize * 4);
-                            if idx + 3 < self.pixels.len() {
-                                // Simple 50% blend
-                                self.pixels[idx] = ((self.pixels[idx] as u32 + avg_r as u32) / 2) as u8;
-                                self.pixels[idx + 1] = ((self.pixels[idx + 1] as u32 + avg_g as u32) / 2) as u8;
-                                self.pixels[idx + 2] = ((self.pixels[idx + 2] as u32 + avg_b as u32) / 2) as u8;
-                                self.pixels[idx + 3] = avg_a;
-                            }
+                        // Write the blurred pixel
+                        let idx = (py as usize * self.stride) + (px as usize * 4);
+                        if idx + 3 < self.pixels.len() {
+                            // Simple 50% blend with original
+                            self.pixels[idx] = ((self.pixels[idx] as u32 + avg_r as u32) / 2) as u8;
+                            self.pixels[idx + 1] = ((self.pixels[idx + 1] as u32 + avg_g as u32) / 2) as u8;
+                            self.pixels[idx + 2] = ((self.pixels[idx + 2] as u32 + avg_b as u32) / 2) as u8;
+                            self.pixels[idx + 3] = avg_a;
                         }
                     }
                 }
@@ -645,7 +684,7 @@ impl Canvas {
         }
         self.dirty = true;
     }
-
+}
 
 fn aligned_stride(width: u32) -> usize {
     let row = width as usize * 4;
