@@ -5,18 +5,24 @@ use crate::selection::{Selection, SelectionMode, SelectionType};
 use crate::viewport::ViewState;
 use crate::theme::ThemeConfig;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SliderDrag {
     Size,
+    #[allow(dead_code)]
     Brightness,
+    #[allow(dead_code)]
     BlurRadius,
+    #[allow(dead_code)]
     SharpenStrength,
+    #[allow(dead_code)]
     BrightnessFX,
+    #[allow(dead_code)]
     Contrast,
+    #[allow(dead_code)]
     Saturation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tool {
     Brush,
     Eraser,
@@ -26,12 +32,14 @@ pub enum Tool {
     Blur,
     SelectRect,
     SelectEllipse,
-    SelectLasso,    SelectMove,    ShapeRect,
+    SelectLasso,
+    SelectMove,
+    ShapeRect,
     ShapeEllipse,
     ShapeLine,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColorPickerDrag {
     Hue,
     SV,
