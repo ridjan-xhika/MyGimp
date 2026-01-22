@@ -26,7 +26,9 @@ pub enum Tool {
     Blur,
     SelectRect,
     SelectEllipse,
-    SelectLasso,
+    SelectLasso,    SelectMove,    ShapeRect,
+    ShapeEllipse,
+    ShapeLine,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,6 +70,11 @@ pub struct InputState {
     pub selection_mode: SelectionMode,
     pub selection_type: SelectionType,
     pub lasso_points: Vec<(f32, f32)>,
+    pub shape_start: Option<(f32, f32)>,
+    pub shape_end: Option<(f32, f32)>,
+    pub move_region_start: Option<(f32, f32)>,
+    pub move_region_end: Option<(f32, f32)>,
+    pub move_region_buffer: Option<(u32, u32, u32, u32, Vec<u8>)>,
     // Viewport state
     pub view_state: ViewState,
     // Theme state
@@ -105,6 +112,11 @@ impl InputState {
             selection_mode: SelectionMode::Replace,
             selection_type: SelectionType::Rectangle,
             lasso_points: vec![],
+            shape_start: None,
+            shape_end: None,
+            move_region_start: None,
+            move_region_end: None,
+            move_region_buffer: None,
             view_state: ViewState::new(),
             theme_config: ThemeConfig::load_from_config(),
         }
