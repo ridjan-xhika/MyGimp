@@ -1708,10 +1708,14 @@ fn main() {
                                     // Selection tool preview (marching ants style border)
                                     if matches!(input.current_tool, input::Tool::SelectRect | input::Tool::SelectEllipse | input::Tool::SelectLasso) {
                                         if let Some((start, end)) = input.selection_start.zip(input.selection_end) {
-                                            let sx = start.0.min(end.0);
-                                            let sy = start.1.min(end.1);
-                                            let ex = start.0.max(end.0);
-                                            let ey = start.1.max(end.1);
+                                            // Calculate selection centered on start point, with end determining the radius
+                                            let dx = (end.0 as i32 - start.0 as i32).abs() as u32;
+                                            let dy = (end.1 as i32 - start.1 as i32).abs() as u32;
+                                            
+                                            let sx = start.0.saturating_sub(dx);
+                                            let sy = start.1.saturating_sub(dy);
+                                            let ex = start.0.saturating_add(dx).min(c.width.saturating_sub(1));
+                                            let ey = start.1.saturating_add(dy).min(c.height.saturating_sub(1));
                                             let border_color = [0, 150, 255, 255]; // Blue preview
                                             
                                             // Backup the area around the selection border
