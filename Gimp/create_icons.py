@@ -57,13 +57,17 @@ def brightness_icon(draw, size):
     ray_len = radius + size // 8
     ray_start = radius + 2
     for angle_idx in range(8):
-        angle = (angle_idx * 45) * 3.14159 / 180
-        x_off = int((ray_start + 3) * 3.14159 / angle_idx + 1)
-        y_offset = int((ray_start + 3) * 3.14159 / (angle_idx + 1))
+        angle_deg = angle_idx * 45
+        angle_rad = angle_deg * 3.14159 / 180.0
         
-        # Simplified rays
-        draw.rectangle([(center - 1, center - ray_len), (center + 1, center - ray_start)], 
-                      fill=(255, 200, 0, 255))
+        # Draw rays pointing outward
+        import math
+        x_end = center + int(ray_len * math.cos(angle_rad))
+        y_end = center + int(ray_len * math.sin(angle_rad))
+        x_start = center + int(ray_start * math.cos(angle_rad))
+        y_start = center + int(ray_start * math.sin(angle_rad))
+        
+        draw_line(draw, x_start, y_start, x_end, y_end, (255, 200, 0, 255), 2)
 
 def blur_icon(draw, size):
     """Blur filter icon - blurred shapes."""

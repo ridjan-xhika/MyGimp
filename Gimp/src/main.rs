@@ -96,22 +96,22 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
     
     // Tool buttons with selection highlight
     let tools = [
-        (input::Tool::Brush, &icons.brush, Some("B")),
-        (input::Tool::Eraser, &icons.eraser, Some("E")),
-        (input::Tool::FillBucket, &icons.fill, Some("F")),
-        (input::Tool::ColorPicker, &icons.picker, Some("P")),
-        (input::Tool::Move, &icons.move_tool, Some("M")),
-        (input::Tool::Blur, &icons.blur, Some("U")),
-        (input::Tool::SelectRect, &icons.select_rect, Some("R")),
-        (input::Tool::SelectEllipse, &icons.select_ellipse, Some("O")),
-        (input::Tool::SelectLasso, &icons.select_lasso, Some("L")),
-        (input::Tool::SelectMove, &icons.move_tool, Some("SM")),
-        (input::Tool::ShapeRect, &icons.shape_rect, Some("SR")),
-        (input::Tool::ShapeEllipse, &icons.shape_ellipse, Some("SE")),
-        (input::Tool::ShapeLine, &icons.shape_line, Some("SL")),
+        (input::Tool::Brush, &icons.brush),
+        (input::Tool::Eraser, &icons.eraser),
+        (input::Tool::FillBucket, &icons.fill),
+        (input::Tool::ColorPicker, &icons.picker),
+        (input::Tool::Move, &icons.move_tool),
+        (input::Tool::Blur, &icons.blur),
+        (input::Tool::SelectRect, &icons.select_rect),
+        (input::Tool::SelectEllipse, &icons.select_ellipse),
+        (input::Tool::SelectLasso, &icons.select_lasso),
+        (input::Tool::SelectMove, &icons.move_tool),
+        (input::Tool::ShapeRect, &icons.shape_rect),
+        (input::Tool::ShapeEllipse, &icons.shape_ellipse),
+        (input::Tool::ShapeLine, &icons.shape_line),
     ];
     
-    for (tool, icon, label) in &tools {
+    for (tool, icon) in &tools {
         let is_active = input.current_tool == *tool;
         let btn_color = if is_active { [100, 150, 255, 255] } else { [80, 80, 80, 255] };
         let border_color = [200, 200, 200, 255];
@@ -128,39 +128,33 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
             let icon_y = tool_y + (tool_size - icon_display_size) / 2;
             draw_icon(canvas, icon, icon_x, icon_y, icon_display_size);
         }
-        // Fallback/overlay label for clarity when icons are reused
-        if let Some(text) = label {
-            let text_w = (text.len() as u32 * 6).min(tool_size);
-            let text_x = tool_x + (tool_size.saturating_sub(text_w)) / 2;
-            let text_y = tool_y + tool_size / 2 - 3;
-            draw_button_text(canvas, text_x, text_y, text);
-        }
         tool_x += tool_size + tool_gap;
     }
     
     // Right side of toolbar: File operations with icons + filters
-    let file_x = canvas.width.saturating_sub(240);
+    let file_x = canvas.width.saturating_sub(256);
+    let file_btn_size = 28u32; // Larger button size
     let file_btns = [
         (file_x, &icons.import, None),           // Import
-        (file_x + 30, &icons.export, None),      // Export
-        (file_x + 60, &icons.save, None),        // Save
-        (file_x + 90, &icons.brightness, None),  // Brightness filter
-        (file_x + 120, &icons.invert, None),     // Invert filter
-        (file_x + 150, &icons.grayscale, None),  // Grayscale filter (toggle)
-        (file_x + 180, &icons.brightness, Some("X")), // Remove brightness (marked)
-        (file_x + 210, &icons.grayscale, Some("X")),  // Remove grayscale (marked)
+        (file_x + 32, &icons.export, None),      // Export
+        (file_x + 64, &icons.save, None),        // Save
+        (file_x + 96, &icons.brightness, None),  // Brightness filter
+        (file_x + 128, &icons.invert, None),     // Invert filter
+        (file_x + 160, &icons.grayscale, None),  // Grayscale filter (toggle)
+        (file_x + 192, &icons.brightness, Some("X")), // Remove brightness (marked)
+        (file_x + 224, &icons.grayscale, Some("X")),  // Remove grayscale (marked)
     ];
     
     for (x, icon, label) in &file_btns {
-        canvas.fill_rect(*x, tool_y, 24, tool_size, [100, 100, 100, 255]);
+        canvas.fill_rect(*x, tool_y, file_btn_size, tool_size, [100, 100, 100, 255]);
         if !icon.pixels.is_empty() {
-            let icon_display_size = 20;
-            let icon_x_pos = *x + (24 - icon_display_size) / 2;
+            let icon_display_size = (tool_size - 8).min(file_btn_size - 4);
+            let icon_x_pos = x.saturating_add((file_btn_size - icon_display_size) / 2);
             let icon_y_pos = tool_y + (tool_size - icon_display_size) / 2;
             draw_icon(canvas, icon, icon_x_pos, icon_y_pos, icon_display_size);
         }
         if let Some(text) = label {
-            draw_button_text(canvas, *x + 8, tool_y + 16, text);
+            draw_button_text(canvas, *x + 10, tool_y + tool_size / 2 - 3, text);
         }
     }
     
@@ -283,6 +277,11 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
         canvas.fill_rect(cx.saturating_sub(1), cy.saturating_sub(6), 1, 12, [0, 0, 0, 255]);
     }
     
+    // Draw active selection (marching ants)
+    if input.selection.is_active() {
+        draw_selection_overlay(canvas, &input.selection, input.brush.color);
+    }
+    
     // No filter intensity UI; simple toolbar-only filters
     
 
@@ -361,6 +360,37 @@ fn draw_sv_square_fast(canvas: &mut Canvas, x: u32, y: u32, w: u32, h: u32, hue:
     }
 }
 
+fn draw_selection_overlay(canvas: &mut Canvas, selection: &crate::selection::Selection, ant_color: [u8; 4]) {
+    // Draw marching ants border around the selection using current brush color
+    
+    // Simple dashed border - iterate through all pixels and draw if on selection edge
+    for y in 0..selection.height {
+        for x in 0..selection.width {
+            if selection.is_selected(x, y) {
+                // Check if this is an edge pixel (has an unselected neighbor)
+                let is_edge = 
+                    (x == 0 || !selection.is_selected(x - 1, y)) ||
+                    (x == selection.width - 1 || !selection.is_selected(x + 1, y)) ||
+                    (y == 0 || !selection.is_selected(x, y - 1)) ||
+                    (y == selection.height - 1 || !selection.is_selected(x, y + 1));
+                
+                if is_edge {
+                    // Dashed pattern - alternate every 4 pixels
+                    if ((x + y) / 4) % 2 == 0 {
+                        let pixel_idx = (y as usize * canvas.stride) + (x as usize * 4);
+                        if pixel_idx + 3 < canvas.pixels.len() {
+                            canvas.pixels[pixel_idx] = ant_color[0];
+                            canvas.pixels[pixel_idx + 1] = ant_color[1];
+                            canvas.pixels[pixel_idx + 2] = ant_color[2];
+                            canvas.pixels[pixel_idx + 3] = ant_color[3];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     if pos.0 < 0.0 || pos.1 < 0.0 {
         return None;
@@ -400,17 +430,17 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
         }
         
         // File operations + filters in toolbar
-        let file_x = canvas.width.saturating_sub(240);
+        let file_x = canvas.width.saturating_sub(256);
         if x >= file_x && x < canvas.width {
             let rel_x = x - file_x;
-            if rel_x < 24 { return Some(PanelAction::FileImport); }
-            else if rel_x < 54 { return Some(PanelAction::FileExport); }
-            else if rel_x < 84 { return Some(PanelAction::FileSave); }
-            else if rel_x < 114 { return Some(PanelAction::FilterBrightness); }
-            else if rel_x < 144 { return Some(PanelAction::FilterInvert); }
-            else if rel_x < 174 { return Some(PanelAction::FilterGrayscale); }
-            else if rel_x < 204 { return Some(PanelAction::RemoveBrightness); }
-            else if rel_x < 234 { return Some(PanelAction::RemoveGrayscale); }
+            if rel_x < 28 { return Some(PanelAction::FileImport); }
+            else if rel_x < 60 { return Some(PanelAction::FileExport); }
+            else if rel_x < 92 { return Some(PanelAction::FileSave); }
+            else if rel_x < 124 { return Some(PanelAction::FilterBrightness); }
+            else if rel_x < 156 { return Some(PanelAction::FilterInvert); }
+            else if rel_x < 188 { return Some(PanelAction::FilterGrayscale); }
+            else if rel_x < 220 { return Some(PanelAction::RemoveBrightness); }
+            else if rel_x < 252 { return Some(PanelAction::RemoveGrayscale); }
         }
         
         // New feature buttons (bottom right of toolbar)
@@ -1065,6 +1095,26 @@ fn main() {
                                                 // L: Lasso Select Tool
                                                 input.current_tool = input::Tool::SelectLasso;
                                                 w.request_redraw();
+                                            }
+                                            KeyCode::KeyA if ctrl_pressed => {
+                                                // Ctrl+A: Select All
+                                                ensure_selection_dimensions(&mut input, c);
+                                                input.selection.select_all();
+                                                w.request_redraw();
+                                                println!("✓ Selected all");
+                                            }
+                                            KeyCode::KeyD if ctrl_pressed => {
+                                                // Ctrl+D: Deselect (clear selection)
+                                                input.selection.clear();
+                                                w.request_redraw();
+                                                println!("✓ Selection cleared");
+                                            }
+                                            KeyCode::KeyI if ctrl_pressed && shift_pressed => {
+                                                // Ctrl+Shift+I: Invert Selection
+                                                ensure_selection_dimensions(&mut input, c);
+                                                input.selection.invert();
+                                                w.request_redraw();
+                                                println!("✓ Selection inverted");
                                             }
                                             KeyCode::KeyV if !ctrl_pressed => {
                                                 // V: Shape Rectangle Tool
