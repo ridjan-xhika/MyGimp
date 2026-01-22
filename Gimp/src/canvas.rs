@@ -12,6 +12,9 @@ pub struct Canvas {
     pub drawing_layer: Vec<u8>, // User drawings layer in IMAGE-SPACE coordinates
     pub pan_offset: (i32, i32), // Store pan offset so drawings can use it
     pub grayscale_active: bool, // Toggle state for grayscale filter
+    pub brightness_active: bool, // Toggle state for brightness filter
+    pub brightness_value: f32, // Current brightness value for re-applying on pan
+    pub contrast_value: f32, // Current contrast value for re-applying on pan
     pub original_image_backup: Option<Vec<u8>>, // Backup before filters for restoration
 }
 
@@ -32,6 +35,9 @@ impl Canvas {
             drawing_layer,
             pan_offset: (0, 0),
             grayscale_active: false,
+            brightness_active: false,
+            brightness_value: 0.0,
+            contrast_value: 0.0,
             original_image_backup: None,
         }
     }
@@ -157,6 +163,10 @@ impl Canvas {
         if self.grayscale_active {
             self.apply_grayscale_to_display();
         }
+        // If brightness is active, re-apply to the display buffer so panning keeps the effect
+        if self.brightness_active {
+            self.apply_brightness_to_display();
+        }
         self.dirty = true;
     }
     
@@ -214,7 +224,9 @@ impl Canvas {
             return;
         }
         let idx = y as usize * self.stride + x as usize * 4;
-        self.pixels[idx..idx + 4].copy_from_slice(&color);
+        if idx + 3 < self.pixels.len() {
+            self.pixels[idx..idx + 4].copy_from_slice(&color);
+        }
         self.dirty = true;
     }
 
@@ -280,6 +292,50 @@ impl Canvas {
                     self.blend_pixel(x as u32, y as u32, color);
                 }
             }
+        }
+    }
+
+    /// Draw a straight line with circular stroke caps
+    pub fn draw_line(&mut self, start: (f32, f32), end: (f32, f32), thickness: f32, color: [u8; 4]) {
+        let radius = (thickness / 2.0).max(0.5);
+        let dx = end.0 - start.0;
+        let dy = end.1 - start.1;
+        let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+        let steps = (dist / radius.max(1.0)).ceil() as i32;
+        for i in 0..=steps {
+            let t = i as f32 / steps.max(1) as f32;
+            let x = start.0 + dx * t;
+            let y = start.1 + dy * t;
+            self.stamp_circle(x, y, radius, color);
+        }
+    }
+
+    /// Draw rectangle outline using four lines (start -> end defines opposite corners)
+    pub fn draw_rect_outline(&mut self, start: (f32, f32), end: (f32, f32), thickness: f32, color: [u8; 4]) {
+        let x1 = start.0.min(end.0);
+        let x2 = start.0.max(end.0);
+        let y1 = start.1.min(end.1);
+        let y2 = start.1.max(end.1);
+        self.draw_line((x1, y1), (x2, y1), thickness, color);
+        self.draw_line((x2, y1), (x2, y2), thickness, color);
+        self.draw_line((x2, y2), (x1, y2), thickness, color);
+        self.draw_line((x1, y2), (x1, y1), thickness, color);
+    }
+
+    /// Draw ellipse outline based on bounding box defined by start/end
+    pub fn draw_ellipse_outline(&mut self, start: (f32, f32), end: (f32, f32), thickness: f32, color: [u8; 4]) {
+        let cx = (start.0 + end.0) / 2.0;
+        let cy = (start.1 + end.1) / 2.0;
+        let rx = ((start.0 - end.0).abs() / 2.0).max(1.0);
+        let ry = ((start.1 - end.1).abs() / 2.0).max(1.0);
+        let radius = (thickness / 2.0).max(0.5);
+        let steps = ((rx.max(ry)) * 3.14159 / 2.0).max(24.0).min(720.0).round() as i32;
+        for i in 0..=steps {
+            let t = i as f32 / steps.max(1) as f32;
+            let angle = t * std::f32::consts::TAU;
+            let x = cx + rx * angle.cos();
+            let y = cy + ry * angle.sin();
+            self.stamp_circle(x, y, radius, color);
         }
     }
 
@@ -584,16 +640,21 @@ impl Canvas {
         self.dirty = true;
     }
     
-    /// Remove grayscale by restoring from original backup
+    /// Remove grayscale filter (toggle off if active)
     pub fn remove_grayscale(&mut self) {
-        if let Some(original) = self.original_image_backup.clone() {
-            self.loaded_image_data = Some(original.clone());
+        // If grayscale is active, remove it using the same toggle logic as filter_grayscale
+        if self.grayscale_active {
+            self.grayscale_active = false;  // Set BEFORE paste so it doesn't re-apply grayscale
             if let Some((img_w, img_h)) = self.loaded_image_size {
-                let (ox, oy) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &original, ox, oy);
+                if let Some(img_data) = self.loaded_image_data.clone() {
+                    let (ox, oy) = self.pan_offset;
+                    self.paste_image_with_offset(img_w, img_h, &img_data, ox, oy);
+                }
             }
-            self.grayscale_active = false;
             self.dirty = true;
+        } else {
+            // If not active, it's already removed - nothing to do
+            println!("Grayscale filter not currently active");
         }
     }
     
@@ -643,57 +704,61 @@ impl Canvas {
         }
     }
     
-    /// Remove brightness by restoring from original backup
-    pub fn remove_brightness(&mut self) {
-        if let Some(original) = self.original_image_backup.clone() {
-            self.loaded_image_data = Some(original.clone());
-            if let Some((img_w, img_h)) = self.loaded_image_size {
-                let (ox, oy) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &original, ox, oy);
+    /// Helper: apply brightness to the current display buffer without toggling state
+    fn apply_brightness_to_display(&mut self) {
+        let factor = (259.0 * (self.contrast_value + 255.0)) / (255.0 * (259.0 - self.contrast_value));
+        
+        for idx in (0..self.pixels.len()).step_by(4) {
+            if idx + 3 < self.pixels.len() && self.pixels[idx + 3] > 0 {
+                for i in 0..3 {
+                    let pixel = self.pixels[idx + i] as f32;
+                    let contrasted = factor * (pixel - 128.0) + 128.0;
+                    let adjusted = contrasted + self.brightness_value;
+                    self.pixels[idx + i] = adjusted.clamp(0.0, 255.0) as u8;
+                }
             }
-            self.dirty = true;
         }
     }
     
-    /// Apply brightness/contrast adjustment to drawing layer
+    /// Remove brightness by restoring from original image
+    pub fn remove_brightness(&mut self) {
+        if self.brightness_active {
+            self.brightness_active = false;  // Set BEFORE paste so it doesn't re-apply
+            if let Some((img_w, img_h)) = self.loaded_image_size {
+                if let Some(img_data) = self.loaded_image_data.clone() {
+                    let (ox, oy) = self.pan_offset;
+                    self.paste_image_with_offset(img_w, img_h, &img_data, ox, oy);
+                }
+            }
+            self.dirty = true;
+        } else {
+            println!("Brightness filter not currently active");
+        }
+    }
+    
+    /// Apply brightness/contrast adjustment to display buffer
     pub fn filter_brightness_contrast(&mut self, brightness: f32, contrast: f32) {
-        if let Some((img_w, img_h)) = self.loaded_image_size {
-            let img_stride = img_w as usize * 4;
-            let factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast));
-            
-            for y in 0..img_h {
-                for x in 0..img_w {
-                    let idx = (y as usize * img_stride) + (x as usize * 4);
-                    if idx + 3 < self.drawing_layer.len() {
-                        if self.drawing_layer[idx + 3] > 0 {
-                            for i in 0..3 {
-                                let pixel = self.drawing_layer[idx + i] as f32;
-                                // Apply contrast
-                                let contrasted = factor * (pixel - 128.0) + 128.0;
-                                // Apply brightness
-                                let adjusted = contrasted + brightness;
-                                self.drawing_layer[idx + i] = adjusted.clamp(0.0, 255.0) as u8;
-                            }
-                        }
-                    }
+        // Toggle brightness: if active, remove it; if inactive, apply it
+        if self.brightness_active {
+            self.remove_brightness();
+            return;
+        }
+        
+        self.brightness_active = true;
+        self.brightness_value = brightness;
+        self.contrast_value = contrast;
+        
+        // Apply brightness/contrast to the display pixels WITHOUT modifying loaded_image_data
+        let factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast));
+        
+        for idx in (0..self.pixels.len()).step_by(4) {
+            if idx + 3 < self.pixels.len() && self.pixels[idx + 3] > 0 {
+                for i in 0..3 {
+                    let pixel = self.pixels[idx + i] as f32;
+                    let contrasted = factor * (pixel - 128.0) + 128.0;
+                    let adjusted = contrasted + brightness;
+                    self.pixels[idx + i] = adjusted.clamp(0.0, 255.0) as u8;
                 }
-            }
-            // Also apply brightness/contrast to the background image so panning keeps the effect
-            if let Some(ref mut img_data) = self.loaded_image_data {
-                for i in (0..img_data.len()).step_by(4) {
-                    if i + 3 < img_data.len() {
-                        for c in 0..3 {
-                            let pixel = img_data[i + c] as f32;
-                            let contrasted = factor * (pixel - 128.0) + 128.0;
-                            let adjusted = contrasted + brightness;
-                            img_data[i + c] = adjusted.clamp(0.0, 255.0) as u8;
-                        }
-                    }
-                }
-            }
-            if let Some(img_data) = self.loaded_image_data.clone() {
-                let (offset_x, offset_y) = self.pan_offset;
-                self.paste_image_with_offset(img_w, img_h, &img_data, offset_x, offset_y);
             }
         }
         self.dirty = true;
