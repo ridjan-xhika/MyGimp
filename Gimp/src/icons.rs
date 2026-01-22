@@ -31,6 +31,12 @@ pub struct IconCache {
     pub grayscale: Icon,
     pub brightness: Icon,
     pub blur: Icon,
+    pub select_rect: Icon,
+    pub select_ellipse: Icon,
+    pub select_lasso: Icon,
+    pub shape_rect: Icon,
+    pub shape_ellipse: Icon,
+    pub shape_line: Icon,
 }
 
 impl IconCache {
@@ -48,6 +54,12 @@ impl IconCache {
             grayscale: load_icon("assets/grayscale.png"),
             brightness: load_icon("assets/brightness.png"),
             blur: load_icon("assets/blur.png"),
+            select_rect: load_icon("assets/select_rect.png"),
+            select_ellipse: load_icon("assets/select_ellipse.png"),
+            select_lasso: load_icon("assets/select_lasso.png"),
+            shape_rect: load_icon("assets/shape_rect.png"),
+            shape_ellipse: load_icon("assets/shape_ellipse.png"),
+            shape_line: load_icon("assets/shape_line.png"),
         }
     }
 }
