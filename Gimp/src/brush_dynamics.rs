@@ -86,6 +86,7 @@ impl BrushDynamics {
     }
 
     /// Evaluate curve at a given input value (0.0 to 1.0)
+    #[allow(dead_code)]
     pub fn evaluate_curve(curve: &[(f32, f32)], input: f32) -> f32 {
         let clamped = input.clamp(0.0, 1.0);
 
@@ -106,16 +107,19 @@ impl BrushDynamics {
     }
 
     /// Get size multiplier based on pressure (0.0 to 1.0)
+    #[allow(dead_code)]
     pub fn size_from_pressure(&self, pressure: f32) -> f32 {
         Self::evaluate_curve(&self.pressure_to_size, pressure.clamp(0.0, 1.0))
     }
 
     /// Get opacity multiplier based on pressure (0.0 to 1.0)
+    #[allow(dead_code)]
     pub fn opacity_from_pressure(&self, pressure: f32) -> f32 {
         Self::evaluate_curve(&self.pressure_to_opacity, pressure.clamp(0.0, 1.0))
     }
 
     /// Get size multiplier based on speed. Speed is in pixels per frame.
+    #[allow(dead_code)]
     pub fn size_from_speed(&self, distance_pixel: f32, time_delta_secs: f32) -> f32 {
         if time_delta_secs <= 0.0 {
             return 1.0;
@@ -128,6 +132,7 @@ impl BrushDynamics {
     }
 
     /// Apply dynamics to radius and color with pressure and speed
+    #[allow(dead_code)]
     pub fn apply_dynamics(
         &self,
         base_radius: f32,
@@ -175,6 +180,7 @@ impl Default for DynamicsState {
 }
 
 impl DynamicsState {
+    #[allow(dead_code)]
     pub fn new(preset: DynamicsPreset) -> Self {
         Self {
             preset,
@@ -184,12 +190,14 @@ impl DynamicsState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_preset(&mut self, preset: DynamicsPreset) {
         self.preset = preset;
         self.dynamics = BrushDynamics::from_preset(preset);
     }
 
     /// Load preset from file or create default
+    #[allow(dead_code)]
     pub fn load_or_default(preset: DynamicsPreset) -> Self {
         let config_dir = Self::config_dir();
         let preset_path = config_dir.join(format!("{:?}.json", preset));
@@ -204,6 +212,7 @@ impl DynamicsState {
     }
 
     /// Save preset to file
+    #[allow(dead_code)]
     pub fn save(&self) -> std::io::Result<()> {
         let config_dir = Self::config_dir();
         std::fs::create_dir_all(&config_dir)?;
@@ -215,6 +224,7 @@ impl DynamicsState {
         std::fs::write(preset_path, json)
     }
 
+    #[allow(dead_code)]
     fn config_dir() -> std::path::PathBuf {
         #[cfg(target_os = "windows")]
         {
