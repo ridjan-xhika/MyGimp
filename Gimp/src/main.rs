@@ -68,6 +68,12 @@ fn window_to_canvas(
     Some((x.clamp(0.0, (canvas.width - 1) as f32), y.clamp(0.0, (canvas.height - 1) as f32)))
 }
 
+fn ensure_selection_dimensions(input: &mut InputState, canvas: &Canvas) {
+    if input.selection.width != canvas.width || input.selection.height != canvas.height {
+        input.selection = crate::selection::Selection::new(canvas.width, canvas.height);
+    }
+}
+
 fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputState, icons: &crate::icons::IconCache) {
     // Top toolbar background (dark)
     canvas.fill_rect(0, 0, canvas.width, TOOLBAR_HEIGHT, [50, 50, 50, 255]);
@@ -76,22 +82,29 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
     canvas.fill_rect(0, TOOLBAR_HEIGHT, PANEL_WIDTH, canvas.height - TOOLBAR_HEIGHT, [220, 220, 220, 255]);
     
     // Toolbar: Tool buttons with icons
-    let tool_gap = 8;
-    let tool_size = 48;
+    let tool_gap = 6;
+    let tool_size = 40;
     let mut tool_x = 8;
     let tool_y = 8;
     
     // Tool buttons with selection highlight
     let tools = [
-        (input::Tool::Brush, &icons.brush),
-        (input::Tool::Eraser, &icons.eraser),
-        (input::Tool::FillBucket, &icons.fill),
-        (input::Tool::ColorPicker, &icons.picker),
-        (input::Tool::Move, &icons.move_tool),
-        (input::Tool::Blur, &icons.blur),
+        (input::Tool::Brush, &icons.brush, Some("B")),
+        (input::Tool::Eraser, &icons.eraser, Some("E")),
+        (input::Tool::FillBucket, &icons.fill, Some("F")),
+        (input::Tool::ColorPicker, &icons.picker, Some("P")),
+        (input::Tool::Move, &icons.move_tool, Some("M")),
+        (input::Tool::Blur, &icons.blur, Some("U")),
+        (input::Tool::SelectRect, &icons.select_rect, Some("R")),
+        (input::Tool::SelectEllipse, &icons.select_ellipse, Some("O")),
+        (input::Tool::SelectLasso, &icons.select_lasso, Some("L")),
+        (input::Tool::SelectMove, &icons.move_tool, Some("SM")),
+        (input::Tool::ShapeRect, &icons.shape_rect, Some("SR")),
+        (input::Tool::ShapeEllipse, &icons.shape_ellipse, Some("SE")),
+        (input::Tool::ShapeLine, &icons.shape_line, Some("SL")),
     ];
     
-    for (tool, icon) in &tools {
+    for (tool, icon, label) in &tools {
         let is_active = input.current_tool == *tool;
         let btn_color = if is_active { [100, 150, 255, 255] } else { [80, 80, 80, 255] };
         let border_color = [200, 200, 200, 255];
@@ -103,10 +116,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
         
         // Draw icon centered in the button
         if !icon.pixels.is_empty() {
-            let icon_display_size = 32;
+            let icon_display_size = (tool_size - 8).max(20);
             let icon_x = tool_x + (tool_size - icon_display_size) / 2;
             let icon_y = tool_y + (tool_size - icon_display_size) / 2;
             draw_icon(canvas, icon, icon_x, icon_y, icon_display_size);
+        }
+        // Fallback/overlay label for clarity when icons are reused
+        if let Some(text) = label {
+            let text_w = (text.len() as u32 * 6).min(tool_size);
+            let text_x = tool_x + (tool_size.saturating_sub(text_w)) / 2;
+            let text_y = tool_y + tool_size / 2 - 3;
+            draw_button_text(canvas, text_x, text_y, text);
         }
         tool_x += tool_size + tool_gap;
     }
@@ -114,17 +134,17 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
     // Right side of toolbar: File operations with icons + filters
     let file_x = canvas.width.saturating_sub(240);
     let file_btns = [
-        (file_x, &icons.import),           // Import
-        (file_x + 30, &icons.export),      // Export
-        (file_x + 60, &icons.save),        // Save
-        (file_x + 90, &icons.brightness),  // Brightness filter
-        (file_x + 120, &icons.invert),     // Invert filter
-        (file_x + 150, &icons.grayscale),  // Grayscale filter (toggle)
-        (file_x + 180, &icons.brightness), // Remove brightness (reuse icon)
-        (file_x + 210, &icons.grayscale),  // Remove grayscale (reuse icon)
+        (file_x, &icons.import, None),           // Import
+        (file_x + 30, &icons.export, None),      // Export
+        (file_x + 60, &icons.save, None),        // Save
+        (file_x + 90, &icons.brightness, None),  // Brightness filter
+        (file_x + 120, &icons.invert, None),     // Invert filter
+        (file_x + 150, &icons.grayscale, None),  // Grayscale filter (toggle)
+        (file_x + 180, &icons.brightness, Some("X")), // Remove brightness (marked)
+        (file_x + 210, &icons.grayscale, Some("X")),  // Remove grayscale (marked)
     ];
     
-    for (x, icon) in &file_btns {
+    for (x, icon, label) in &file_btns {
         canvas.fill_rect(*x, tool_y, 24, tool_size, [100, 100, 100, 255]);
         if !icon.pixels.is_empty() {
             let icon_display_size = 20;
@@ -132,6 +152,25 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
             let icon_y_pos = tool_y + (tool_size - icon_display_size) / 2;
             draw_icon(canvas, icon, icon_x_pos, icon_y_pos, icon_display_size);
         }
+        if let Some(text) = label {
+            draw_button_text(canvas, *x + 8, tool_y + 16, text);
+        }
+    }
+    
+    // New feature buttons (bottom right of toolbar)
+    let new_btns_x = canvas.width.saturating_sub(180);
+    let new_btns = [
+        (new_btns_x, "U", [150, 80, 80, 255]),       // Undo
+        (new_btns_x + 30, "R", [150, 80, 80, 255]),  // Redo
+        (new_btns_x + 60, "+", [80, 150, 80, 255]),  // Zoom In
+        (new_btns_x + 90, "-", [80, 150, 80, 255]),  // Zoom Out
+        (new_btns_x + 120, "F", [80, 150, 80, 255]), // Zoom Fit
+        (new_btns_x + 150, "T", [80, 80, 150, 255]), // Theme Toggle
+    ];
+    
+    for (x, label, color) in &new_btns {
+        canvas.fill_rect(*x, tool_y, 24, tool_size, *color);
+        draw_button_text(canvas, *x + 6, tool_y + 16, label);
     }
     
     // Left panel: Colors, Size, Filters
@@ -307,32 +346,10 @@ fn draw_sv_square_fast(canvas: &mut Canvas, x: u32, y: u32, w: u32, h: u32, hue:
     
     // Display coordinates and color under cursor (in panel only)
     if let Some(pos) = input.last_pos {
-        // Only show status if cursor is in the canvas area
-        if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
-            // Canvas-space coordinates (adjusted for image space and zoom/pan)
-            let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
-            let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
-            
-            // Draw coordinates text in panel status bar
-            let status_text = format!("X:{} Y:{}", canvas_x, canvas_y);
+        // Only show status if cursor is in the panel area, not over canvas
+        if pos.0 < PANEL_WIDTH as f32 && status_bar_y < canvas.height {
+            let status_text = format!("Panel Status");
             draw_button_text(canvas, 8, status_bar_y + 2, &status_text);
-            
-            // Get color under cursor if within bounds
-            if canvas_x < canvas.width && canvas_y < canvas.height {
-                if let Some(color) = canvas.get_pixel(canvas_x, canvas_y) {
-                    let color_text = format!("RGB({},{},{})", color[0], color[1], color[2]);
-                    let color_x = 200;
-                    if color_x + 100 < PANEL_WIDTH {
-                        draw_button_text(canvas, color_x, status_bar_y + 2, &color_text);
-                        
-                        // Draw color swatch
-                        let swatch_x = color_x + 80;
-                        if swatch_x + 12 < PANEL_WIDTH {
-                            canvas.fill_rect(swatch_x, status_bar_y + 2, 12, 16, color);
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -347,8 +364,8 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
     // Toolbar hit test
     if y < TOOLBAR_HEIGHT {
         // Tools
-        let tool_gap = 8;
-        let tool_size = 48;
+        let tool_gap = 6;
+        let tool_size = 40;
         let mut tool_x = 8;
         let tool_y = 8;
         
@@ -359,6 +376,13 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             input::Tool::ColorPicker,
             input::Tool::Move,
             input::Tool::Blur,
+            input::Tool::SelectRect,
+            input::Tool::SelectEllipse,
+            input::Tool::SelectLasso,
+            input::Tool::SelectMove,
+            input::Tool::ShapeRect,
+            input::Tool::ShapeEllipse,
+            input::Tool::ShapeLine,
         ];
         
         for tool in &tools {
@@ -380,6 +404,18 @@ fn panel_hit_test(pos: (f32, f32), canvas: &Canvas) -> Option<PanelAction> {
             else if rel_x < 174 { return Some(PanelAction::FilterGrayscale); }
             else if rel_x < 204 { return Some(PanelAction::RemoveBrightness); }
             else if rel_x < 234 { return Some(PanelAction::RemoveGrayscale); }
+        }
+        
+        // New feature buttons (bottom right of toolbar)
+        let new_btns_x = canvas.width.saturating_sub(180);
+        if x >= new_btns_x && x < canvas.width {
+            let rel_x = x - new_btns_x;
+            if rel_x < 24 { return Some(PanelAction::HistoryUndo); }
+            else if rel_x < 54 { return Some(PanelAction::HistoryRedo); }
+            else if rel_x < 84 { return Some(PanelAction::ZoomIn); }
+            else if rel_x < 114 { return Some(PanelAction::ZoomOut); }
+            else if rel_x < 144 { return Some(PanelAction::ZoomFit); }
+            else if rel_x < 174 { return Some(PanelAction::ThemeToggle); }
         }
 
         // Brush size slider
@@ -577,6 +613,14 @@ enum PanelAction {
     OpenColorPickerBackground,
     PickerHue(f32),
     PickerSV(f32, f32),
+    // New actions
+    ZoomIn,
+    ZoomOut,
+    ZoomFit,
+    ZoomActual,
+    HistoryUndo,
+    HistoryRedo,
+    ThemeToggle,
 }
 
 fn handle_panel_action(
@@ -751,6 +795,50 @@ fn handle_panel_action(
             input.set_hsv(input.hue, s, v);
             window.request_redraw();
         }
+        PanelAction::ZoomIn => {
+            let center_x = window_size.width as f32 / 2.0;
+            let center_y = window_size.height as f32 / 2.0;
+            input.view_state.zoom_in(center_x, center_y);
+            window.request_redraw();
+        }
+        PanelAction::ZoomOut => {
+            let center_x = window_size.width as f32 / 2.0;
+            let center_y = window_size.height as f32 / 2.0;
+            input.view_state.zoom_out(center_x, center_y);
+            window.request_redraw();
+        }
+        PanelAction::ZoomFit => {
+            input.view_state.fit_to_window(
+                window_size.width as f32,
+                window_size.height as f32,
+                canvas.width,
+                canvas.height
+            );
+            window.request_redraw();
+        }
+        PanelAction::ZoomActual => {
+            input.view_state.actual_size();
+            window.request_redraw();
+        }
+        PanelAction::HistoryUndo => {
+            if history.can_undo() {
+                history.undo(canvas);
+                window.request_redraw();
+                println!("✓ Undo");
+            }
+        }
+        PanelAction::HistoryRedo => {
+            if history.can_redo() {
+                history.redo(canvas);
+                window.request_redraw();
+                println!("✓ Redo");
+            }
+        }
+        PanelAction::ThemeToggle => {
+            input.theme_config.toggle_theme();
+            window.request_redraw();
+            println!("✓ Theme: {:?}", input.theme_config.current_theme);
+        }
     }
 }
 
@@ -766,6 +854,7 @@ fn main() {
         radius: BRUSH_RADIUS,
         color: BRUSH_COLOR,
     });
+    input.open_color_picker_foreground();  // Show color picker by default
     
     // Load icons at startup
     let icons = crate::icons::IconCache::load();
@@ -923,6 +1012,47 @@ fn main() {
                                                 history.push(c, "Blur (shortcut)".to_string());
                                                 w.request_redraw();
                                                 println!("✓ Applied Blur filter");
+                                            }
+                                            KeyCode::KeyT if ctrl_pressed => {
+                                                // Ctrl+T: Toggle Theme
+                                                input.theme_config.toggle_theme();
+                                                w.request_redraw();
+                                                println!("✓ Theme: {:?}", input.theme_config.current_theme);
+                                            }
+                                            KeyCode::KeyR if !ctrl_pressed => {
+                                                // R: Rectangle Select Tool
+                                                input.current_tool = input::Tool::SelectRect;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyE if !ctrl_pressed => {
+                                                // E: Ellipse Select Tool
+                                                input.current_tool = input::Tool::SelectEllipse;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyL if !ctrl_pressed => {
+                                                // L: Lasso Select Tool
+                                                input.current_tool = input::Tool::SelectLasso;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyV if !ctrl_pressed => {
+                                                // V: Shape Rectangle Tool
+                                                input.current_tool = input::Tool::ShapeRect;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyC if !ctrl_pressed => {
+                                                // C: Shape Ellipse Tool
+                                                input.current_tool = input::Tool::ShapeEllipse;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyN if !ctrl_pressed => {
+                                                // N: Shape Line Tool
+                                                input.current_tool = input::Tool::ShapeLine;
+                                                w.request_redraw();
+                                            }
+                                            KeyCode::KeyQ if !ctrl_pressed => {
+                                                // Q: Select & Move Tool
+                                                input.current_tool = input::Tool::SelectMove;
+                                                w.request_redraw();
                                             }
                                             // Pan/zoom controls
                                             KeyCode::ArrowLeft => {
@@ -1098,12 +1228,29 @@ fn main() {
                                                     let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
                                                     let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
                                                     input.selection_start = Some((canvas_x, canvas_y));
+                                                    input.selection_end = Some((canvas_x, canvas_y));
+                                                    input.lasso_points.clear();
+                                                    if matches!(input.current_tool, input::Tool::SelectLasso) {
+                                                        input.lasso_points.push((canvas_x as f32, canvas_y as f32));
+                                                    }
                                                     input.drawing = true;
+                                                }
+                                                input::Tool::ShapeRect | input::Tool::ShapeEllipse | input::Tool::ShapeLine => {
+                                                    input.shape_start = Some(pos);
+                                                    input.shape_end = Some(pos);
+                                                    input.drawing = true;
+                                                    w.request_redraw();
+                                                }
+                                                input::Tool::SelectMove => {
+                                                    input.move_region_start = Some(pos);
+                                                    input.move_region_end = Some(pos);
+                                                    input.drawing = true;
+                                                    w.request_redraw();
                                                 }
                                                 input::Tool::FillBucket => {
                                                     if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
-                                                        let canvas_x = pos.0 as u32;
-                                                        let canvas_y = pos.1 as u32;
+                                                        let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+                                                        let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
                                                         c.flood_fill(canvas_x, canvas_y, input.brush.color);
                                                         history.push(c, "Flood fill".to_string());
                                                         w.request_redraw();
@@ -1133,18 +1280,138 @@ fn main() {
                                     }
                                 } else {
                                     // Mouse released - save to history after drawing
-                                    if input.current_tool == input::Tool::Move && input.drawing {
-                                        // Apply move if we dragged
-
-                                    }
                                     if input.drawing {
-                                        history.push(c, "Drawing".to_string());
+                                        let mut pushed_history = false;
+                                        match input.current_tool {
+                                            input::Tool::SelectRect | input::Tool::SelectEllipse => {
+                                                if let Some(start) = input.selection_start {
+                                                    let end = input.selection_end.unwrap_or(start);
+                                                    ensure_selection_dimensions(&mut input, c);
+                                                    match input.current_tool {
+                                                        input::Tool::SelectRect => {
+                                                            input.selection.select_rectangle(
+                                                                start.0,
+                                                                start.1,
+                                                                end.0,
+                                                                end.1,
+                                                                input.selection_mode,
+                                                            );
+                                                        }
+                                                        input::Tool::SelectEllipse => {
+                                                            let cx = (start.0 as f32 + end.0 as f32) / 2.0;
+                                                            let cy = (start.1 as f32 + end.1 as f32) / 2.0;
+                                                            let rx = ((start.0 as i64 - end.0 as i64).abs() as f32 / 2.0).max(1.0);
+                                                            let ry = ((start.1 as i64 - end.1 as i64).abs() as f32 / 2.0).max(1.0);
+                                                            input.selection.select_ellipse(cx, cy, rx, ry, input.selection_mode);
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                    history.push(c, "Selection".to_string());
+                                                    pushed_history = true;
+                                                    w.request_redraw();
+                                                }
+                                            }
+                                            input::Tool::SelectLasso => {
+                                                if !input.lasso_points.is_empty() {
+                                                    ensure_selection_dimensions(&mut input, c);
+                                                    input.selection.select_lasso(&input.lasso_points, input.selection_mode);
+                                                    println!("✓ Lasso selection created");
+                                                    w.request_redraw();
+                                                }
+                                            }
+                                            input::Tool::SelectMove => {
+                                                if let (Some(start), Some(end)) = (input.move_region_start, input.move_region_end) {
+                                                    let x1 = start.0.min(end.0) as u32;
+                                                    let y1 = start.1.min(end.1) as u32;
+                                                    let x2 = start.0.max(end.0) as u32;
+                                                    let y2 = start.1.max(end.1) as u32;
+                                                    let w_region = x2.saturating_sub(x1).max(1);
+                                                    let h_region = y2.saturating_sub(y1).max(1);
+                                                    
+                                                    // If we have a buffer, paste it at the new location
+                                                    if let Some((src_x, src_y, src_w, src_h, buffer)) = input.move_region_buffer.take() {
+                                                        // Erase original region (fill with white/transparent)
+                                                        for y in src_y..src_y + src_h {
+                                                            let offset = y as usize * c.stride + src_x as usize * 4;
+                                                            let len = src_w as usize * 4;
+                                                            if offset + len <= c.pixels.len() {
+                                                                c.pixels[offset..offset + len].fill(255); // White
+                                                            }
+                                                        }
+                                                        
+                                                        // Paste at new location
+                                                        let mut buf_cursor = 0;
+                                                        for y in y1..=(y1 + src_h).min(c.height.saturating_sub(1)) {
+                                                            let offset = y as usize * c.stride + x1 as usize * 4;
+                                                            let len = src_w as usize * 4;
+                                                            if offset + len <= c.pixels.len() && buf_cursor + len <= buffer.len() {
+                                                                c.pixels[offset..offset + len].copy_from_slice(&buffer[buf_cursor..buf_cursor + len]);
+                                                            }
+                                                            buf_cursor += len;
+                                                        }
+                                                        history.push(c, "Move region".to_string());
+                                                        pushed_history = true;
+                                                        println!("✓ Region moved");
+                                                        w.request_redraw();
+                                                    } else {
+                                                        // First selection: copy region to buffer
+                                                        let mut region_data = Vec::with_capacity(w_region as usize * h_region as usize * 4);
+                                                        for y in y1..=(y1 + h_region).min(c.height.saturating_sub(1)) {
+                                                            let offset = y as usize * c.stride + x1 as usize * 4;
+                                                            let len = w_region as usize * 4;
+                                                            if offset + len <= c.pixels.len() {
+                                                                region_data.extend_from_slice(&c.pixels[offset..offset + len]);
+                                                            }
+                                                        }
+                                                        
+                                                        input.move_region_buffer = Some((x1, y1, w_region, h_region, region_data));
+                                                        println!("✓ Region copied (drag again with SelectMove to paste at new location)");
+                                                    }
+                                                }
+                                            }
+                                            input::Tool::ShapeRect | input::Tool::ShapeEllipse | input::Tool::ShapeLine => {
+                                                if let (Some(start), Some(end)) = (input.shape_start, input.shape_end) {
+                                                    let thickness = input.brush.radius.max(1.0);
+                                                    let color = input.brush.color;
+                                                    match input.current_tool {
+                                                        input::Tool::ShapeRect => {
+                                                            c.draw_rect_outline(start, end, thickness, color);
+                                                        }
+                                                        input::Tool::ShapeEllipse => {
+                                                            c.draw_ellipse_outline(start, end, thickness, color);
+                                                        }
+                                                        input::Tool::ShapeLine => {
+                                                            c.draw_line(start, end, thickness, color);
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                    history.push(c, "Shape".to_string());
+                                                    pushed_history = true;
+                                                    w.request_redraw();
+                                                }
+                                            }
+                                            input::Tool::Move => {
+                                                // Move handled during drag; nothing extra on release
+                                            }
+                                            _ => {
+                                                history.push(c, "Drawing".to_string());
+                                                pushed_history = true;
+                                            }
+                                        }
+                                        if !pushed_history {
+                                            history.push(c, "Drawing".to_string());
+                                        }
                                     }
                                     input.set_slider_drag(None);
                                     input.set_color_drag(None);
                                     input.stop_drawing();
                                     input.selection_start = None;
                                     input.selection_end = None;
+                                    input.lasso_points.clear();
+                                    input.shape_start = None;
+                                    input.shape_end = None;
+                                    input.move_region_start = None;
+                                    input.move_region_end = None;
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {
@@ -1221,51 +1488,74 @@ fn main() {
                                             input.stop_drawing();
                                             return;
                                         }
-                                        
-                                            match input.current_tool {
-                                                input::Tool::Brush => {
-                                                    // Block drawing in UI regions
-                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
-                                                        if let Some(last) = prev {
-                                                            input.brush.stroke(c, last, p);
-                                                        } else {
-                                                            input.brush.stamp(c, p);
-                                                        }
-                                                        w.request_redraw();
-                                                    }
+                                        match input.current_tool {
+                                            input::Tool::SelectRect | input::Tool::SelectEllipse => {
+                                                // Update selection end in canvas coordinates while dragging
+                                                let canvas_x = ((p.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+                                                let canvas_y = ((p.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
+                                                input.selection_end = Some((canvas_x, canvas_y));
+                                            }
+                                            input::Tool::SelectLasso => {
+                                                let canvas_x = ((p.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+                                                let canvas_y = ((p.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
+                                                let point = (canvas_x as f32, canvas_y as f32);
+                                                if input.lasso_points.last().map_or(true, |last| {
+                                                    (last.0 - point.0).abs() > 0.5 || (last.1 - point.1).abs() > 0.5
+                                                }) {
+                                                    input.lasso_points.push(point);
                                                 }
-                                                input::Tool::Eraser => {
-                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
-                                                        c.erase_circle(p.0, p.1, input.brush.radius);
-                                                        if let Some(last) = prev {
-                                                            let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
-                                                            let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
-                                                            for i in 0..=steps {
-                                                                let t = i as f32 / steps as f32;
-                                                                let ix = last.0 + (p.0 - last.0) * t;
-                                                                let iy = last.1 + (p.1 - last.1) * t;
-                                                                c.erase_circle(ix, iy, input.brush.radius);
-                                                            }
-                                                        }
-                                                        w.request_redraw();
+                                            }
+                                            input::Tool::ShapeRect | input::Tool::ShapeEllipse | input::Tool::ShapeLine => {
+                                                input.shape_end = Some(p);
+                                                w.request_redraw();
+                                            }
+                                            input::Tool::SelectMove => {
+                                                input.move_region_end = Some(p);
+                                                w.request_redraw();
+                                            }
+                                            input::Tool::Brush => {
+                                                // Block drawing in UI regions
+                                                if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                    if let Some(last) = prev {
+                                                        input.brush.stroke(c, last, p);
+                                                    } else {
+                                                        input.brush.stamp(c, p);
                                                     }
+                                                    w.request_redraw();
                                                 }
-                                                input::Tool::Blur => {
-                                                    if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
-                                                        c.blur_circle(p.0, p.1, input.brush.radius);
-                                                        if let Some(last) = prev {
-                                                            let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
-                                                            let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
-                                                            for i in 0..=steps {
-                                                                let t = i as f32 / steps as f32;
-                                                                let ix = last.0 + (p.0 - last.0) * t;
-                                                                let iy = last.1 + (p.1 - last.1) * t;
-                                                                c.blur_circle(ix, iy, input.brush.radius);
-                                                            }
+                                            }
+                                            input::Tool::Eraser => {
+                                                if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                    c.erase_circle(p.0, p.1, input.brush.radius);
+                                                    if let Some(last) = prev {
+                                                        let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
+                                                        let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
+                                                        for i in 0..=steps {
+                                                            let t = i as f32 / steps as f32;
+                                                            let ix = last.0 + (p.0 - last.0) * t;
+                                                            let iy = last.1 + (p.1 - last.1) * t;
+                                                            c.erase_circle(ix, iy, input.brush.radius);
                                                         }
-                                                        w.request_redraw();
                                                     }
+                                                    w.request_redraw();
                                                 }
+                                            }
+                                            input::Tool::Blur => {
+                                                if p.0 >= PANEL_WIDTH as f32 && p.1 >= TOOLBAR_HEIGHT as f32 {
+                                                    c.blur_circle(p.0, p.1, input.brush.radius);
+                                                    if let Some(last) = prev {
+                                                        let dist = ((p.0 - last.0).powi(2) + (p.1 - last.1).powi(2)).sqrt();
+                                                        let steps = (dist / (input.brush.radius / 2.0)).ceil().max(1.0) as i32;
+                                                        for i in 0..=steps {
+                                                            let t = i as f32 / steps as f32;
+                                                            let ix = last.0 + (p.0 - last.0) * t;
+                                                            let iy = last.1 + (p.1 - last.1) * t;
+                                                            c.blur_circle(ix, iy, input.brush.radius);
+                                                        }
+                                                    }
+                                                    w.request_redraw();
+                                                }
+                                            }
                                             input::Tool::Move => {
                                                 if let Some(last) = prev {
                                                     let dx = ((p.0 - last.0) / c.zoom_scale) as i32;
@@ -1283,15 +1573,182 @@ fn main() {
                             }
                             WindowEvent::RedrawRequested => {
                                 draw_ui(c, &input.brush, input.brightness, &input, &icons);
-                                
-                                if let Err(e) = g.render(c) {
-                                    match e {
-                                        wgpu::SurfaceError::Lost => {
-                                            g.resize(window_size);
-                                            c.dirty = true;
+
+                                // Optional preview overlays during drag (backed up and restored)
+                                let mut preview_backup: Option<(u32, u32, u32, u32, Vec<u8>)> = None;
+                                if input.drawing {
+                                    let mut backup_regions = Vec::new();
+
+                                    // Shape tool preview
+                                    if let Some((start, end)) = input.shape_start.zip(input.shape_end) {
+                                        let thickness = input.brush.radius.max(1.0);
+                                        let preview_color = [255, 64, 255, 200]; // High-contrast preview overlay
+                                        let margin = (thickness.ceil() as u32).saturating_add(2);
+                                        let min_x = start.0.min(end.0).floor().max(0.0) as u32;
+                                        let max_x = start.0.max(end.0).ceil().min((c.width - 1) as f32) as u32;
+                                        let min_y = start.1.min(end.1).floor().max(0.0) as u32;
+                                        let max_y = start.1.max(end.1).ceil().min((c.height - 1) as f32) as u32;
+                                        let bx0 = min_x.saturating_sub(margin).min(c.width.saturating_sub(1));
+                                        let by0 = min_y.saturating_sub(margin).min(c.height.saturating_sub(1));
+                                        let bx1 = (max_x + margin).min(c.width.saturating_sub(1));
+                                        let by1 = (max_y + margin).min(c.height.saturating_sub(1));
+                                        let region_w = bx1.saturating_sub(bx0).saturating_add(1);
+                                        let region_h = by1.saturating_sub(by0).saturating_add(1);
+                                        if region_w > 0 && region_h > 0 {
+                                            let mut backup = Vec::with_capacity(region_w as usize * region_h as usize * 4);
+                                            for y in by0..=by1 {
+                                                let offset = y as usize * c.stride + bx0 as usize * 4;
+                                                let len = region_w as usize * 4;
+                                                if offset + len <= c.pixels.len() {
+                                                    backup.extend_from_slice(&c.pixels[offset..offset + len]);
+                                                }
+                                            }
+
+                                            match input.current_tool {
+                                                input::Tool::ShapeRect => c.draw_rect_outline(start, end, thickness, preview_color),
+                                                input::Tool::ShapeEllipse => c.draw_ellipse_outline(start, end, thickness, preview_color),
+                                                input::Tool::ShapeLine => c.draw_line(start, end, thickness, preview_color),
+                                                _ => {}
+                                            }
+
+                                            backup_regions.push((bx0, by0, region_w, region_h, backup));
                                         }
-                                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                                        other => eprintln!("{other:?}"),
+                                    }
+
+                                    // Selection tool preview (marching ants style border)
+                                    if matches!(input.current_tool, input::Tool::SelectRect | input::Tool::SelectEllipse) {
+                                        if let Some((start, end)) = input.selection_start.zip(input.selection_end) {
+                                            let sx = start.0.min(end.0);
+                                            let sy = start.1.min(end.1);
+                                            let ex = start.0.max(end.0);
+                                            let ey = start.1.max(end.1);
+                                            let border_color = [255, 255, 0, 255]; // Yellow marquee
+                                            
+                                            // Backup the area around the selection border
+                                            let margin = 2u32;
+                                            let bx0 = sx.saturating_sub(margin);
+                                            let by0 = sy.saturating_sub(margin);
+                                            let bx1 = (ex + margin).min(c.width.saturating_sub(1));
+                                            let by1 = (ey + margin).min(c.height.saturating_sub(1));
+                                            let region_w = bx1.saturating_sub(bx0).saturating_add(1);
+                                            let region_h = by1.saturating_sub(by0).saturating_add(1);
+                                            
+                                            if region_w > 0 && region_h > 0 {
+                                                let mut backup = Vec::with_capacity(region_w as usize * region_h as usize * 4);
+                                                for y in by0..=by1 {
+                                                    let offset = y as usize * c.stride + bx0 as usize * 4;
+                                                    let len = region_w as usize * 4;
+                                                    if offset + len <= c.pixels.len() {
+                                                        backup.extend_from_slice(&c.pixels[offset..offset + len]);
+                                                    }
+                                                }
+                                                
+                                                // Draw marching ants (dashed rectangle) around selection
+                                                let dash_len = 4u32;
+                                                let mut dash_count = 0u32;
+                                                for x in sx..=ex.min(c.width.saturating_sub(1)) {
+                                                    dash_count += 1;
+                                                    if dash_count % (dash_len * 2) < dash_len {
+                                                        if sy < c.height { c.set_pixel(x, sy, border_color); }
+                                                        if ey < c.height { c.set_pixel(x, ey, border_color); }
+                                                    }
+                                                }
+                                                for y in sy..=ey.min(c.height.saturating_sub(1)) {
+                                                    dash_count += 1;
+                                                    if dash_count % (dash_len * 2) < dash_len {
+                                                        if sx < c.width { c.set_pixel(sx, y, border_color); }
+                                                        if ex < c.width { c.set_pixel(ex, y, border_color); }
+                                                    }
+                                                }
+                                                
+                                                backup_regions.push((bx0, by0, region_w, region_h, backup));
+                                            }
+                                        }
+                                    }
+
+                                    // Move region preview
+                                    if matches!(input.current_tool, input::Tool::SelectMove) {
+                                        if let Some((start, end)) = input.move_region_start.zip(input.move_region_end) {
+                                            let x1 = start.0.min(end.0) as u32;
+                                            let y1 = start.1.min(end.1) as u32;
+                                            let x2 = start.0.max(end.0) as u32;
+                                            let y2 = start.1.max(end.1) as u32;
+                                            let border_color = [0, 255, 255, 255]; // Cyan marquee for move region
+                                            
+                                            let margin = 2u32;
+                                            let bx0 = x1.saturating_sub(margin);
+                                            let by0 = y1.saturating_sub(margin);
+                                            let bx1 = (x2 + margin).min(c.width.saturating_sub(1));
+                                            let by1 = (y2 + margin).min(c.height.saturating_sub(1));
+                                            let region_w = bx1.saturating_sub(bx0).saturating_add(1);
+                                            let region_h = by1.saturating_sub(by0).saturating_add(1);
+                                            
+                                            if region_w > 0 && region_h > 0 {
+                                                let mut backup = Vec::with_capacity(region_w as usize * region_h as usize * 4);
+                                                for y in by0..=by1 {
+                                                    let offset = y as usize * c.stride + bx0 as usize * 4;
+                                                    let len = region_w as usize * 4;
+                                                    if offset + len <= c.pixels.len() {
+                                                        backup.extend_from_slice(&c.pixels[offset..offset + len]);
+                                                    }
+                                                }
+                                                
+                                                // Draw marching ants for move region
+                                                let dash_len = 4u32;
+                                                let mut dash_count = 0u32;
+                                                for x in x1..=x2.min(c.width.saturating_sub(1)) {
+                                                    dash_count += 1;
+                                                    if dash_count % (dash_len * 2) < dash_len {
+                                                        if y1 < c.height { c.set_pixel(x, y1, border_color); }
+                                                        if y2 < c.height { c.set_pixel(x, y2, border_color); }
+                                                    }
+                                                }
+                                                for y in y1..=y2.min(c.height.saturating_sub(1)) {
+                                                    dash_count += 1;
+                                                    if dash_count % (dash_len * 2) < dash_len {
+                                                        if x1 < c.width { c.set_pixel(x1, y, border_color); }
+                                                        if x2 < c.width { c.set_pixel(x2, y, border_color); }
+                                                    }
+                                                }
+                                                
+                                                backup_regions.push((bx0, by0, region_w, region_h, backup));
+                                            }
+                                        }
+                                    }
+
+                                    if let Err(e) = g.render(c) {
+                                        match e {
+                                            wgpu::SurfaceError::Lost => {
+                                                g.resize(window_size);
+                                                c.dirty = true;
+                                            }
+                                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                            other => eprintln!("{other:?}"),
+                                        }
+                                    }
+
+                                    // Restore all backed-up regions so previews don't persist
+                                    for (bx0, by0, region_w, region_h, backup) in backup_regions {
+                                        let mut cursor = 0;
+                                        for y in by0..by0 + region_h {
+                                            let offset = y as usize * c.stride + bx0 as usize * 4;
+                                            let len = region_w as usize * 4;
+                                            if offset + len <= c.pixels.len() && cursor + len <= backup.len() {
+                                                c.pixels[offset..offset + len].copy_from_slice(&backup[cursor..cursor + len]);
+                                            }
+                                            cursor += len;
+                                        }
+                                    }
+                                } else {
+                                    if let Err(e) = g.render(c) {
+                                        match e {
+                                            wgpu::SurfaceError::Lost => {
+                                                g.resize(window_size);
+                                                c.dirty = true;
+                                            }
+                                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                                            other => eprintln!("{other:?}"),
+                                        }
                                     }
                                 }
                             }
