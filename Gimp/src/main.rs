@@ -1,4 +1,5 @@
 mod brush;
+mod brush_dynamics;
 mod canvas;
 mod gpu;
 mod input;
@@ -6,6 +7,10 @@ mod layer;
 mod io;
 mod icons;
 mod history;
+mod filters;
+mod selection;
+mod viewport;
+mod theme;
 
 use std::sync::Arc;
 use winit::{
@@ -63,7 +68,7 @@ fn window_to_canvas(
     Some((x.clamp(0.0, (canvas.width - 1) as f32), y.clamp(0.0, (canvas.height - 1) as f32)))
 }
 
-fn draw_ui(canvas: &mut Canvas, brush: &Brush, brightness: f32, input: &InputState, icons: &crate::icons::IconCache) {
+fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputState, icons: &crate::icons::IconCache) {
     // Top toolbar background (dark)
     canvas.fill_rect(0, 0, canvas.width, TOOLBAR_HEIGHT, [50, 50, 50, 255]);
     
@@ -681,37 +686,37 @@ fn handle_panel_action(
         }
         PanelAction::FilterInvert => {
             canvas.filter_invert();
-            history.push(canvas);
+            history.push(canvas, "Invert filter".to_string());
             window.request_redraw();
             println!("✓ Applied Invert filter");
         }
         PanelAction::FilterGrayscale => {
             canvas.filter_grayscale();
-            history.push(canvas);
+            history.push(canvas, "Grayscale filter".to_string());
             window.request_redraw();
             println!("✓ Applied Grayscale filter");
         }
         PanelAction::FilterBrightness => {
             canvas.filter_brightness_contrast(30.0, 20.0);
-            history.push(canvas);
+            history.push(canvas, "Brightness filter".to_string());
             window.request_redraw();
             println!("✓ Applied Brightness filter");
         }
         PanelAction::RemoveBrightness => {
             canvas.remove_brightness();
-            history.push(canvas);
+            history.push(canvas, "Remove brightness".to_string());
             window.request_redraw();
             println!("✓ Removed Brightness");
         }
         PanelAction::RemoveGrayscale => {
             canvas.remove_grayscale();
-            history.push(canvas);
+            history.push(canvas, "Remove grayscale".to_string());
             window.request_redraw();
             println!("✓ Removed Grayscale");
         }
         PanelAction::FilterBlur => {
             canvas.filter_blur(2);
-            history.push(canvas);
+            history.push(canvas, "Blur filter".to_string());
             window.request_redraw();
             println!("✓ Applied Blur filter");
         }
@@ -890,21 +895,21 @@ fn main() {
                                             KeyCode::KeyG if ctrl_pressed => {
                                                 // Ctrl+G: Grayscale
                                                 c.filter_grayscale();
-                                                history.push(c);
+                                                history.push(c, "Grayscale (shortcut)".to_string());
                                                 w.request_redraw();
                                                 println!("✓ Applied Grayscale filter");
                                             }
                                             KeyCode::KeyB if ctrl_pressed && shift_pressed => {
                                                 // Ctrl+Shift+B: Brightness/Contrast
                                                 c.filter_brightness_contrast(30.0, 20.0);
-                                                history.push(c);
+                                                history.push(c, "Brightness/Contrast (shortcut)".to_string());
                                                 w.request_redraw();
                                                 println!("✓ Applied Brightness/Contrast filter");
                                             }
                                             KeyCode::KeyU if ctrl_pressed => {
                                                 // Ctrl+U: Blur
                                                 c.filter_blur(2);
-                                                history.push(c);
+                                                history.push(c, "Blur (shortcut)".to_string());
                                                 w.request_redraw();
                                                 println!("✓ Applied Blur filter");
                                             }
@@ -1082,7 +1087,7 @@ fn main() {
                                                         let canvas_x = pos.0 as u32;
                                                         let canvas_y = pos.1 as u32;
                                                         c.flood_fill(canvas_x, canvas_y, input.brush.color);
-                                                        history.push(c);
+                                                        history.push(c, "Flood fill".to_string());
                                                         w.request_redraw();
                                                     }
                                                 }
@@ -1136,6 +1141,26 @@ fn main() {
                                             SliderDrag::Size => {
                                                 let value = size_value_from_x(p.0);
                                                 input.set_brush_radius(value, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX);
+                                            }
+                                            SliderDrag::BlurRadius => {
+                                                let value = (p.0.clamp(8.0, 280.0) - 8.0) / 272.0 * 15.0 + 1.0;
+                                                input.filter_params.blur_radius = value.clamp(1.0, 16.0);
+                                            }
+                                            SliderDrag::SharpenStrength => {
+                                                let value = (p.0.clamp(8.0, 280.0) - 8.0) / 272.0 * 2.0;
+                                                input.filter_params.sharpen_strength = value.clamp(0.0, 2.0);
+                                            }
+                                            SliderDrag::BrightnessFX => {
+                                                let value = (p.0.clamp(8.0, 280.0) - 8.0) / 272.0 * 2.0 - 1.0;
+                                                input.filter_params.brightness = value.clamp(-1.0, 1.0);
+                                            }
+                                            SliderDrag::Contrast => {
+                                                let value = (p.0.clamp(8.0, 280.0) - 8.0) / 272.0 * 1.5 + 0.5;
+                                                input.filter_params.contrast = value.clamp(0.5, 2.0);
+                                            }
+                                            SliderDrag::Saturation => {
+                                                let value = (p.0.clamp(8.0, 280.0) - 8.0) / 272.0 * 2.0;
+                                                input.filter_params.saturation = value.clamp(0.0, 2.0);
                                             }
                                         }
                                         w.request_redraw();
