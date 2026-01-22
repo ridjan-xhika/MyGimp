@@ -1353,21 +1353,27 @@ fn main() {
                                                 if let Some(start) = input.selection_start {
                                                     let end = input.selection_end.unwrap_or(start);
                                                     ensure_selection_dimensions(&mut input, c);
+                                                    
+                                                    // Calculate centered selection
+                                                    let dx = (end.0 as i32 - start.0 as i32).abs() as u32;
+                                                    let dy = (end.1 as i32 - start.1 as i32).abs() as u32;
+                                                    let x1 = start.0.saturating_sub(dx);
+                                                    let y1 = start.1.saturating_sub(dy);
+                                                    let x2 = start.0.saturating_add(dx);
+                                                    let y2 = start.1.saturating_add(dy);
+                                                    
                                                     match input.current_tool {
                                                         input::Tool::SelectRect => {
                                                             input.selection.select_rectangle(
-                                                                start.0,
-                                                                start.1,
-                                                                end.0,
-                                                                end.1,
+                                                                x1, y1, x2, y2,
                                                                 input.selection_mode,
                                                             );
                                                         }
                                                         input::Tool::SelectEllipse => {
-                                                            let cx = (start.0 as f32 + end.0 as f32) / 2.0;
-                                                            let cy = (start.1 as f32 + end.1 as f32) / 2.0;
-                                                            let rx = ((start.0 as i64 - end.0 as i64).abs() as f32 / 2.0).max(1.0);
-                                                            let ry = ((start.1 as i64 - end.1 as i64).abs() as f32 / 2.0).max(1.0);
+                                                            let cx = start.0 as f32;
+                                                            let cy = start.1 as f32;
+                                                            let rx = dx as f32;
+                                                            let ry = dy as f32;
                                                             input.selection.select_ellipse(cx, cy, rx, ry, input.selection_mode);
                                                         }
                                                         _ => {}
