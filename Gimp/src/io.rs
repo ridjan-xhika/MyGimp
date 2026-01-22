@@ -48,6 +48,16 @@ pub fn select_load_project_folder() -> IoResult<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+/// Save file dialog to export as JPEG
+pub fn select_export_jpeg_path() -> IoResult<String> {
+    FileDialog::new()
+        .add_filter("JPEG", &["jpg", "jpeg"])
+        .set_file_name("export.jpg")
+        .save_file()
+        .ok_or_else(|| "No file selected".to_string())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
 
 /// Load a PNG or JPEG from disk into a Layer.
 pub fn load_image(path: &str) -> IoResult<Layer> {
@@ -115,6 +125,34 @@ pub fn export_layer_as_png(layer: &Layer, path: &str) -> IoResult<()> {
         .map_err(|e| format!("Failed to save PNG {}: {}", path, e))
 }
 
+/// Export a Layer as a JPEG file.
+pub fn export_layer_as_jpeg(layer: &Layer, path: &str, quality: u8) -> IoResult<()> {
+    let img: RgbaImage = ImageBuffer::from_raw(
+        layer.width,
+        layer.height,
+        layer.pixels.clone(),
+    ).ok_or("Failed to create image buffer".to_string())?;
+    
+    // Convert RGBA to RGB for JPEG (JPEG doesn't support alpha)
+    let rgb_img = image::DynamicImage::ImageRgba8(img).to_rgb8();
+    
+    // Save as JPEG with quality setting
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::fs::File::create(path)
+            .map_err(|e| format!("Failed to create file {}: {}", path, e))?,
+        quality.min(100),
+    );
+    
+    encoder
+        .encode(
+            rgb_img.as_raw(),
+            layer.width,
+            layer.height,
+            image::ColorType::Rgb8.into(),
+        )
+        .map_err(|e| format!("Failed to save JPEG {}: {}", path, e))
+}
+
 /// Export a Canvas as a PNG file.
 pub fn export_canvas_as_png(canvas: &Canvas, path: &str) -> IoResult<()> {
     // Extract actual image content (without UI overlay)
@@ -129,6 +167,38 @@ pub fn export_canvas_as_png(canvas: &Canvas, path: &str) -> IoResult<()> {
     
     img.save(path)
         .map_err(|e| format!("Failed to save PNG {}: {}", path, e))
+}
+
+/// Export a Canvas as a JPEG file.
+pub fn export_canvas_as_jpeg(canvas: &Canvas, path: &str, quality: u8) -> IoResult<()> {
+    // Extract actual image content (without UI overlay)
+    let image_pixels = canvas.extract_image_pixels();
+    let (width, height) = canvas.loaded_image_size.unwrap_or((canvas.width, canvas.height));
+    
+    let img: RgbaImage = ImageBuffer::from_raw(
+        width,
+        height,
+        image_pixels,
+    ).ok_or("Failed to create image buffer".to_string())?;
+    
+    // Convert RGBA to RGB for JPEG
+    let rgb_img = image::DynamicImage::ImageRgba8(img).to_rgb8();
+    
+    // Save as JPEG with quality setting
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::fs::File::create(path)
+            .map_err(|e| format!("Failed to create file {}: {}", path, e))?,
+        quality.min(100),
+    );
+    
+    encoder
+        .encode(
+            rgb_img.as_raw(),
+            width,
+            height,
+            image::ColorType::Rgb8.into(),
+        )
+        .map_err(|e| format!("Failed to save JPEG {}: {}", path, e))
 }
 
 /// Save a Project (JSON + PNGs) to a folder.
