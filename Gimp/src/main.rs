@@ -146,35 +146,19 @@ fn draw_ui(canvas: &mut Canvas, brush: &Brush, _brightness: f32, input: &InputSt
     ];
     
     for (x, icon, label) in &file_btns {
-        canvas.fill_rect(*x, tool_y, file_btn_size, tool_size, [100, 100, 100, 255]);
+        // Don't draw background, just draw the icon directly
         if !icon.pixels.is_empty() {
-            let icon_display_size = (tool_size - 8).min(file_btn_size - 4);
-            let icon_x_pos = x.saturating_add((file_btn_size - icon_display_size) / 2);
-            let icon_y_pos = tool_y + (tool_size - icon_display_size) / 2;
-            draw_icon(canvas, icon, icon_x_pos, icon_y_pos, icon_display_size);
+            let icon_display_size = file_btn_size;
+            draw_icon(canvas, icon, *x, tool_y, icon_display_size);
         }
+        
+        // Draw label if needed (like "X" for remove buttons)
         if let Some(text) = label {
-            draw_button_text(canvas, *x + 10, tool_y + tool_size / 2 - 3, text);
+            draw_button_text(canvas, *x + 10, tool_y + file_btn_size / 2 - 3, text);
         }
     }
     
-    // New feature buttons (bottom right of toolbar)
-    let new_btns_x = canvas.width.saturating_sub(180);
-    let new_btns = [
-        (new_btns_x, "U", [150, 80, 80, 255]),       // Undo
-        (new_btns_x + 30, "R", [150, 80, 80, 255]),  // Redo
-        (new_btns_x + 60, "+", [80, 150, 80, 255]),  // Zoom In
-        (new_btns_x + 90, "-", [80, 150, 80, 255]),  // Zoom Out
-        (new_btns_x + 120, "F", [80, 150, 80, 255]), // Zoom Fit
-        (new_btns_x + 150, "T", [80, 80, 150, 255]), // Theme Toggle
-    ];
-    
-    for (x, label, color) in &new_btns {
-        canvas.fill_rect(*x, tool_y, 24, tool_size, *color);
-        draw_button_text(canvas, *x + 6, tool_y + 16, label);
-    }
-    
-    // Left panel: Colors, Size, Filters
+    // Color picker and panel UI below
     let panel_x = 8;
     let panel_y = TOOLBAR_HEIGHT + 8;
     
@@ -1597,6 +1581,7 @@ fn main() {
                                                 let canvas_x = ((p.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
                                                 let canvas_y = ((p.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
                                                 input.selection_end = Some((canvas_x, canvas_y));
+                                                w.request_redraw();
                                             }
                                             input::Tool::SelectLasso => {
                                                 let canvas_x = ((p.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
@@ -1607,6 +1592,8 @@ fn main() {
                                                 }) {
                                                     input.lasso_points.push(point);
                                                 }
+                                                input.selection_end = Some((canvas_x, canvas_y));
+                                                w.request_redraw();
                                             }
                                             input::Tool::ShapeRect | input::Tool::ShapeEllipse | input::Tool::ShapeLine => {
                                                 input.shape_end = Some(p);
@@ -1718,14 +1705,14 @@ fn main() {
                                         }
                                     }
 
-                                    // Selection tool preview (marching ants style border) - BLUE
-                                    if matches!(input.current_tool, input::Tool::SelectRect | input::Tool::SelectEllipse) {
+                                    // Selection tool preview (marching ants style border)
+                                    if matches!(input.current_tool, input::Tool::SelectRect | input::Tool::SelectEllipse | input::Tool::SelectLasso) {
                                         if let Some((start, end)) = input.selection_start.zip(input.selection_end) {
                                             let sx = start.0.min(end.0);
                                             let sy = start.1.min(end.1);
                                             let ex = start.0.max(end.0);
                                             let ey = start.1.max(end.1);
-                                            let border_color = [0, 150, 255, 255]; // Blue marquee
+                                            let border_color = [0, 150, 255, 255]; // Blue preview
                                             
                                             // Backup the area around the selection border
                                             let margin = 2u32;
@@ -1746,22 +1733,66 @@ fn main() {
                                                     }
                                                 }
                                                 
-                                                // Draw marching ants (dashed rectangle) around selection
-                                                let dash_len = 4u32;
-                                                let mut dash_count = 0u32;
-                                                for x in sx..=ex.min(c.width.saturating_sub(1)) {
-                                                    dash_count += 1;
-                                                    if dash_count % (dash_len * 2) < dash_len {
-                                                        if sy < c.height { c.set_pixel(x, sy, border_color); }
-                                                        if ey < c.height { c.set_pixel(x, ey, border_color); }
+                                                // Draw preview based on tool type
+                                                match input.current_tool {
+                                                    input::Tool::SelectRect => {
+                                                        // Draw dashed rectangle
+                                                        let dash_len = 4u32;
+                                                        let mut dash_count = 0u32;
+                                                        for x in sx..=ex.min(c.width.saturating_sub(1)) {
+                                                            dash_count += 1;
+                                                            if dash_count % (dash_len * 2) < dash_len {
+                                                                if sy < c.height { c.set_pixel(x, sy, border_color); }
+                                                                if ey < c.height { c.set_pixel(x, ey, border_color); }
+                                                            }
+                                                        }
+                                                        for y in sy..=ey.min(c.height.saturating_sub(1)) {
+                                                            dash_count += 1;
+                                                            if dash_count % (dash_len * 2) < dash_len {
+                                                                if sx < c.width { c.set_pixel(sx, y, border_color); }
+                                                                if ex < c.width { c.set_pixel(ex, y, border_color); }
+                                                            }
+                                                        }
                                                     }
-                                                }
-                                                for y in sy..=ey.min(c.height.saturating_sub(1)) {
-                                                    dash_count += 1;
-                                                    if dash_count % (dash_len * 2) < dash_len {
-                                                        if sx < c.width { c.set_pixel(sx, y, border_color); }
-                                                        if ex < c.width { c.set_pixel(ex, y, border_color); }
+                                                    input::Tool::SelectEllipse => {
+                                                        // Draw dashed ellipse outline
+                                                        let cx = (sx + ex) as f32 / 2.0;
+                                                        let cy = (sy + ey) as f32 / 2.0;
+                                                        let rx = (ex - sx) as f32 / 2.0;
+                                                        let ry = (ey - sy) as f32 / 2.0;
+                                                        let dash_len = 4u32;
+                                                        
+                                                        for angle_deg in (0..360).step_by(2) {
+                                                            let angle = (angle_deg as f32).to_radians();
+                                                            let x = (cx + rx * angle.cos()).round() as u32;
+                                                            let y = (cy + ry * angle.sin()).round() as u32;
+                                                            if x < c.width && y < c.height {
+                                                                if (angle_deg / 2) % 8 < 4 { // Dashed pattern
+                                                                    c.set_pixel(x, y, border_color);
+                                                                }
+                                                            }
+                                                        }
                                                     }
+                                                    input::Tool::SelectLasso => {
+                                                        // Draw dashed rectangle for lasso (freeform preview)
+                                                        let dash_len = 4u32;
+                                                        let mut dash_count = 0u32;
+                                                        for x in sx..=ex.min(c.width.saturating_sub(1)) {
+                                                            dash_count += 1;
+                                                            if dash_count % (dash_len * 2) < dash_len {
+                                                                if sy < c.height { c.set_pixel(x, sy, border_color); }
+                                                                if ey < c.height { c.set_pixel(x, ey, border_color); }
+                                                            }
+                                                        }
+                                                        for y in sy..=ey.min(c.height.saturating_sub(1)) {
+                                                            dash_count += 1;
+                                                            if dash_count % (dash_len * 2) < dash_len {
+                                                                if sx < c.width { c.set_pixel(sx, y, border_color); }
+                                                                if ex < c.width { c.set_pixel(ex, y, border_color); }
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {}
                                                 }
                                                 
                                                 backup_regions.push((bx0, by0, region_w, region_h, backup));
