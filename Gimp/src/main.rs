@@ -933,8 +933,27 @@ fn main() {
                                 if event.state == ElementState::Pressed {
                                     if let PhysicalKey::Code(code) = event.physical_key {
                                         match code {
-                                            // Check zoom first (with shift modifier)
-                                            KeyCode::PageUp | KeyCode::Equal if shift_pressed => {
+                                            // Zoom with Ctrl+Plus/Minus (new hotkeys)
+                                            KeyCode::Equal if ctrl_pressed && !shift_pressed => {
+                                                // Ctrl+=: Zoom in
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom in: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            KeyCode::Minus if ctrl_pressed && !shift_pressed => {
+                                                // Ctrl+-: Zoom out
+                                                if c.loaded_image_size.is_some() {
+                                                    c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
+                                                    c.repan_image(c.pan_offset.0, c.pan_offset.1);
+                                                    w.request_redraw();
+                                                    println!("Zoom out: {:.0}%", c.zoom_scale * 100.0);
+                                                }
+                                            }
+                                            // Check zoom with shift modifier (legacy)
+                                            KeyCode::PageUp | KeyCode::Equal if shift_pressed && !ctrl_pressed => {
                                                 // Zoom in (Shift+= or Page Up)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale * 1.25).min(5.0);
@@ -943,7 +962,7 @@ fn main() {
                                                     println!("Zoom: {:.0}%", c.zoom_scale * 100.0);
                                                 }
                                             }
-                                            KeyCode::PageDown | KeyCode::Minus if shift_pressed => {
+                                            KeyCode::PageDown | KeyCode::Minus if shift_pressed && !ctrl_pressed => {
                                                 // Zoom out (Shift+- or Page Down)
                                                 if c.loaded_image_size.is_some() {
                                                     c.zoom_scale = (c.zoom_scale / 1.25).max(0.1);
@@ -967,9 +986,9 @@ fn main() {
                                             KeyCode::Digit2 => input.set_brush_color(PALETTE[1]),
                                             KeyCode::Digit3 => input.set_brush_color(PALETTE[2]),
                                             KeyCode::Digit4 => input.set_brush_color(PALETTE[3]),
-                                            // Brush size adjustments (without shift)
-                                            KeyCode::Minus if !shift_pressed => input.adjust_brush_radius(-1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
-                                            KeyCode::Equal if !shift_pressed => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            // Brush size adjustments (only when ctrl and shift not pressed)
+                                            KeyCode::Minus if !shift_pressed && !ctrl_pressed => input.adjust_brush_radius(-1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
+                                            KeyCode::Equal if !shift_pressed && !ctrl_pressed => input.adjust_brush_radius(1.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketLeft => input.adjust_brush_radius(-2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             KeyCode::BracketRight => input.adjust_brush_radius(2.0, BRUSH_RADIUS_MIN, BRUSH_RADIUS_MAX),
                                             // Undo/Redo shortcuts
@@ -1330,28 +1349,46 @@ fn main() {
                                                     
                                                     // If we have a buffer, paste it at the new location
                                                     if let Some((src_x, src_y, src_w, src_h, buffer)) = input.move_region_buffer.take() {
-                                                        // Erase original region (fill with white/transparent)
+                                                        // Center the region at cursor position (not top-left at cursor)
+                                                        let cursor_x = end.0 as i32;
+                                                        let cursor_y = end.1 as i32;
+                                                        let offset_x = (src_w as i32) / 2;
+                                                        let offset_y = (src_h as i32) / 2;
+                                                        let dest_x = (cursor_x - offset_x).max(0) as u32;
+                                                        let dest_y = (cursor_y - offset_y).max(0) as u32;
+                                                        
+                                                        // Erase original region (fill with white)
                                                         for y in src_y..src_y + src_h {
                                                             let offset = y as usize * c.stride + src_x as usize * 4;
                                                             let len = src_w as usize * 4;
                                                             if offset + len <= c.pixels.len() {
-                                                                c.pixels[offset..offset + len].fill(255); // White
+                                                                for i in (0..len).step_by(4) {
+                                                                    c.pixels[offset + i] = 255;     // R
+                                                                    c.pixels[offset + i + 1] = 255; // G
+                                                                    c.pixels[offset + i + 2] = 255; // B
+                                                                    c.pixels[offset + i + 3] = 255; // A
+                                                                }
                                                             }
                                                         }
                                                         
-                                                        // Paste at new location
+                                                        // Paste at destination (centered at cursor)
                                                         let mut buf_cursor = 0;
-                                                        for y in y1..=(y1 + src_h).min(c.height.saturating_sub(1)) {
-                                                            let offset = y as usize * c.stride + x1 as usize * 4;
+                                                        for y in dest_y..(dest_y + src_h).min(c.height) {
+                                                            let offset = y as usize * c.stride + dest_x as usize * 4;
                                                             let len = src_w as usize * 4;
                                                             if offset + len <= c.pixels.len() && buf_cursor + len <= buffer.len() {
                                                                 c.pixels[offset..offset + len].copy_from_slice(&buffer[buf_cursor..buf_cursor + len]);
                                                             }
                                                             buf_cursor += len;
                                                         }
+                                                        
+                                                        // Clear move region tracking for next operation
+                                                        input.move_region_start = None;
+                                                        input.move_region_end = None;
+                                                        
                                                         history.push(c, "Move region".to_string());
                                                         pushed_history = true;
-                                                        println!("✓ Region moved");
+                                                        println!("✓ Region moved from ({}, {}) to ({}, {})", src_x, src_y, dest_x, dest_y);
                                                         w.request_redraw();
                                                     } else {
                                                         // First selection: copy region to buffer
@@ -1365,7 +1402,7 @@ fn main() {
                                                         }
                                                         
                                                         input.move_region_buffer = Some((x1, y1, w_region, h_region, region_data));
-                                                        println!("✓ Region copied (drag again with SelectMove to paste at new location)");
+                                                        println!("✓ Region copied at ({}, {}) size {}x{} - drag SelectMove to paste", x1, y1, w_region, h_region);
                                                     }
                                                 }
                                             }
@@ -1385,6 +1422,9 @@ fn main() {
                                                         }
                                                         _ => {}
                                                     }
+                                                    // Clear shape state
+                                                    input.shape_start = None;
+                                                    input.shape_end = None;
                                                     history.push(c, "Shape".to_string());
                                                     pushed_history = true;
                                                     w.request_redraw();
@@ -1582,7 +1622,7 @@ fn main() {
                                     // Shape tool preview
                                     if let Some((start, end)) = input.shape_start.zip(input.shape_end) {
                                         let thickness = input.brush.radius.max(1.0);
-                                        let preview_color = [255, 64, 255, 200]; // High-contrast preview overlay
+                                        let preview_color = [200, 150, 255, 200]; // Light purple preview overlay
                                         let margin = (thickness.ceil() as u32).saturating_add(2);
                                         let min_x = start.0.min(end.0).floor().max(0.0) as u32;
                                         let max_x = start.0.max(end.0).ceil().min((c.width - 1) as f32) as u32;
@@ -1615,14 +1655,14 @@ fn main() {
                                         }
                                     }
 
-                                    // Selection tool preview (marching ants style border)
+                                    // Selection tool preview (marching ants style border) - BLUE
                                     if matches!(input.current_tool, input::Tool::SelectRect | input::Tool::SelectEllipse) {
                                         if let Some((start, end)) = input.selection_start.zip(input.selection_end) {
                                             let sx = start.0.min(end.0);
                                             let sy = start.1.min(end.1);
                                             let ex = start.0.max(end.0);
                                             let ey = start.1.max(end.1);
-                                            let border_color = [255, 255, 0, 255]; // Yellow marquee
+                                            let border_color = [0, 150, 255, 255]; // Blue marquee
                                             
                                             // Backup the area around the selection border
                                             let margin = 2u32;
@@ -1666,14 +1706,14 @@ fn main() {
                                         }
                                     }
 
-                                    // Move region preview
+                                    // Move region preview - MAGENTA for destination
                                     if matches!(input.current_tool, input::Tool::SelectMove) {
                                         if let Some((start, end)) = input.move_region_start.zip(input.move_region_end) {
                                             let x1 = start.0.min(end.0) as u32;
                                             let y1 = start.1.min(end.1) as u32;
                                             let x2 = start.0.max(end.0) as u32;
                                             let y2 = start.1.max(end.1) as u32;
-                                            let border_color = [0, 255, 255, 255]; // Cyan marquee for move region
+                                            let border_color = [255, 0, 255, 255]; // Magenta marquee for destination preview
                                             
                                             let margin = 2u32;
                                             let bx0 = x1.saturating_sub(margin);
@@ -1693,7 +1733,7 @@ fn main() {
                                                     }
                                                 }
                                                 
-                                                // Draw marching ants for move region
+                                                // Draw marching ants for move destination
                                                 let dash_len = 4u32;
                                                 let mut dash_count = 0u32;
                                                 for x in x1..=x2.min(c.width.saturating_sub(1)) {
@@ -1740,6 +1780,32 @@ fn main() {
                                         }
                                     }
                                 } else {
+                                    // When not dragging, show persistent blue border around current selection
+                                    if let Some((start, end)) = input.selection_start.zip(input.selection_end) {
+                                        let sx = start.0.min(end.0);
+                                        let sy = start.1.min(end.1);
+                                        let ex = start.0.max(end.0);
+                                        let ey = start.1.max(end.1);
+                                        let border_color = [0, 150, 255, 255]; // Blue marquee
+                                        
+                                        let dash_len = 4u32;
+                                        let mut dash_count = 0u32;
+                                        for x in sx..=ex.min(c.width.saturating_sub(1)) {
+                                            dash_count += 1;
+                                            if dash_count % (dash_len * 2) < dash_len {
+                                                if sy < c.height { c.set_pixel(x, sy, border_color); }
+                                                if ey < c.height { c.set_pixel(x, ey, border_color); }
+                                            }
+                                        }
+                                        for y in sy..=ey.min(c.height.saturating_sub(1)) {
+                                            dash_count += 1;
+                                            if dash_count % (dash_len * 2) < dash_len {
+                                                if sx < c.width { c.set_pixel(sx, y, border_color); }
+                                                if ex < c.width { c.set_pixel(ex, y, border_color); }
+                                            }
+                                        }
+                                    }
+
                                     if let Err(e) = g.render(c) {
                                         match e {
                                             wgpu::SurfaceError::Lost => {
