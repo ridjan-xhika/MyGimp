@@ -1082,6 +1082,10 @@ fn main() {
                                                 input::Tool::Brush | input::Tool::Eraser | input::Tool::Blur => {
                                                     input.drawing = true;
                                                 }
+                                                input::Tool::SelectRect | input::Tool::SelectEllipse | input::Tool::SelectLasso => {
+                                                    input.selection_start = Some((pos.0 as u32, pos.1 as u32));
+                                                    input.drawing = true;
+                                                }
                                                 input::Tool::FillBucket => {
                                                     if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
                                                         let canvas_x = pos.0 as u32;
@@ -1119,7 +1123,7 @@ fn main() {
 
                                     }
                                     if input.drawing {
-                                        history.push(c);
+                                        history.push(c, "Drawing".to_string());
                                     }
                                     input.set_slider_drag(None);
                                     input.set_color_drag(None);
