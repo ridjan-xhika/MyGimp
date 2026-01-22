@@ -37,12 +37,19 @@ const BRIGHT_MIN: f32 = 0.3;
 const BRIGHT_MAX: f32 = 1.6;
 const TOOLBAR_HEIGHT: u32 = 64;
 const PANEL_WIDTH: u32 = 88;
+#[allow(dead_code)]
 const UI_MARGIN: u32 = 6;
+#[allow(dead_code)]
 const UI_BUTTON_H: u32 = 20;
+#[allow(dead_code)]
 const UI_GAP: u32 = 6;
+#[allow(dead_code)]
 const SLIDER_H: u32 = 8;
+#[allow(dead_code)]
 const SLIDER_LABEL_W: u32 = 12;
+#[allow(dead_code)]
 const SLIDER_ICON_W: u32 = 10;
+#[allow(dead_code)]
 const SLIDER_KNOB_W: u32 = 12;
 const PALETTE: [[u8; 4]; 8] = [
     [0, 0, 0, 255],       // Black
@@ -595,11 +602,14 @@ fn draw_char(canvas: &mut Canvas, x: u32, y: u32, ch: char, color: [u8; 4]) {
 enum PanelAction {
     Color(u8),
     SizeValue(f32),
+    #[allow(dead_code)]
     CanvasSmaller,
+    #[allow(dead_code)]
     CanvasLarger,
     FileImport,
     FileExport,
     FileSave,
+    #[allow(dead_code)]
     FileOpen,
     Tool(input::Tool),
     FilterInvert,
@@ -607,7 +617,9 @@ enum PanelAction {
     FilterBrightness,
     RemoveGrayscale,
     RemoveBrightness,
+    #[allow(dead_code)]
     FilterBlur,
+    #[allow(dead_code)]
     ToggleColorPicker,
     OpenColorPickerForeground,
     OpenColorPickerBackground,
@@ -617,6 +629,7 @@ enum PanelAction {
     ZoomIn,
     ZoomOut,
     ZoomFit,
+    #[allow(dead_code)]
     ZoomActual,
     HistoryUndo,
     HistoryRedo,
@@ -1615,7 +1628,7 @@ fn main() {
                                 draw_ui(c, &input.brush, input.brightness, &input, &icons);
 
                                 // Optional preview overlays during drag (backed up and restored)
-                                let mut preview_backup: Option<(u32, u32, u32, u32, Vec<u8>)> = None;
+                                let _preview_backup: Option<(u32, u32, u32, u32, Vec<u8>)> = None;
                                 if input.drawing {
                                     let mut backup_regions = Vec::new();
 
