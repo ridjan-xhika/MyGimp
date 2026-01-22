@@ -296,31 +296,42 @@ fn draw_sv_square_fast(canvas: &mut Canvas, x: u32, y: u32, w: u32, h: u32, hue:
         }
     }
 }
-    // Status bar at bottom
+    // Status bar at bottom - only in the left panel area, not over the canvas
     let status_bar_height = 20;
     let status_bar_y = canvas.height.saturating_sub(status_bar_height);
-    canvas.fill_rect(0, status_bar_y, canvas.width, status_bar_height, [80, 80, 80, 255]);
     
-    // Display coordinates and color under cursor
+    // Draw status bar only in the left panel (first PANEL_WIDTH pixels)
+    if status_bar_y < canvas.height {
+        canvas.fill_rect(0, status_bar_y, PANEL_WIDTH.min(canvas.width), status_bar_height, [80, 80, 80, 255]);
+    }
+    
+    // Display coordinates and color under cursor (in panel only)
     if let Some(pos) = input.last_pos {
-        // Canvas-space coordinates (adjusted for image space)
-        let canvas_x = (pos.0 - PANEL_WIDTH as f32).max(0.0) as u32;
-        let canvas_y = pos.1 as u32;
-        
-        // Draw coordinates text
-        let status_text = format!("X:{} Y:{}", canvas_x, canvas_y);
-        draw_button_text(canvas, 8, status_bar_y + 2, &status_text);
-        
-        // Get color under cursor if within bounds
-        if canvas_x < canvas.width && canvas_y < canvas.height {
-            if let Some(color) = canvas.get_pixel(canvas_x, canvas_y) {
-                let color_text = format!("RGB({},{},{})", color[0], color[1], color[2]);
-                let color_x = 200;
-                draw_button_text(canvas, color_x, status_bar_y + 2, &color_text);
-                
-                // Draw color swatch
-                let swatch_x = color_x + 80;
-                canvas.fill_rect(swatch_x, status_bar_y + 2, 12, 16, color);
+        // Only show status if cursor is in the canvas area
+        if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
+            // Canvas-space coordinates (adjusted for image space and zoom/pan)
+            let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+            let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
+            
+            // Draw coordinates text in panel status bar
+            let status_text = format!("X:{} Y:{}", canvas_x, canvas_y);
+            draw_button_text(canvas, 8, status_bar_y + 2, &status_text);
+            
+            // Get color under cursor if within bounds
+            if canvas_x < canvas.width && canvas_y < canvas.height {
+                if let Some(color) = canvas.get_pixel(canvas_x, canvas_y) {
+                    let color_text = format!("RGB({},{},{})", color[0], color[1], color[2]);
+                    let color_x = 200;
+                    if color_x + 100 < PANEL_WIDTH {
+                        draw_button_text(canvas, color_x, status_bar_y + 2, &color_text);
+                        
+                        // Draw color swatch
+                        let swatch_x = color_x + 80;
+                        if swatch_x + 12 < PANEL_WIDTH {
+                            canvas.fill_rect(swatch_x, status_bar_y + 2, 12, 16, color);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1083,7 +1094,10 @@ fn main() {
                                                     input.drawing = true;
                                                 }
                                                 input::Tool::SelectRect | input::Tool::SelectEllipse | input::Tool::SelectLasso => {
-                                                    input.selection_start = Some((pos.0 as u32, pos.1 as u32));
+                                                    // Transform screen coordinates to canvas coordinates
+                                                    let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+                                                    let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
+                                                    input.selection_start = Some((canvas_x, canvas_y));
                                                     input.drawing = true;
                                                 }
                                                 input::Tool::FillBucket => {
@@ -1097,8 +1111,9 @@ fn main() {
                                                 }
                                                 input::Tool::ColorPicker => {
                                                     if pos.0 >= PANEL_WIDTH as f32 && pos.1 >= TOOLBAR_HEIGHT as f32 {
-                                                        let canvas_x = pos.0 as u32;
-                                                        let canvas_y = pos.1 as u32;
+                                                        // Transform screen coordinates to canvas coordinates with zoom/pan
+                                                        let canvas_x = ((pos.0 - PANEL_WIDTH as f32) / input.view_state.zoom + input.view_state.pan_x).max(0.0) as u32;
+                                                        let canvas_y = ((pos.1 - TOOLBAR_HEIGHT as f32) / input.view_state.zoom + input.view_state.pan_y).max(0.0) as u32;
                                                         if let Some(color) = c.get_pixel(canvas_x, canvas_y) {
                                                             if input.active_is_foreground {
                                                                 input.set_brush_color(color);
