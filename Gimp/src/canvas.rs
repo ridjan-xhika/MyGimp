@@ -415,6 +415,7 @@ impl Canvas {
         self.dirty = true;
     }
 
+    #[allow(dead_code)]
     pub fn apply_brightness_circle(&mut self, cx: f32, cy: f32, radius: f32, intensity: i32) {
         if radius <= 0.0 {
             return;
@@ -450,6 +451,7 @@ impl Canvas {
         self.dirty = true;
     }
 
+    #[allow(dead_code)]
     pub fn apply_grayscale_circle(&mut self, cx: f32, cy: f32, radius: f32, intensity: i32) {
         if radius <= 0.0 {
             return;
