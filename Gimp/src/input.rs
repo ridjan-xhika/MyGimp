@@ -1,9 +1,19 @@
 use crate::brush::Brush;
+use crate::brush_dynamics::{DynamicsState, DynamicsPreset};
+use crate::filters::{FilterParams, FilterType};
+use crate::selection::{Selection, SelectionMode, SelectionType};
+use crate::viewport::ViewState;
+use crate::theme::ThemeConfig;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SliderDrag {
     Size,
     Brightness,
+    BlurRadius,
+    SharpenStrength,
+    BrightnessFX,
+    Contrast,
+    Saturation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,6 +24,9 @@ pub enum Tool {
     ColorPicker,
     Move,
     Blur,
+    SelectRect,
+    SelectEllipse,
+    SelectLasso,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,6 +56,22 @@ pub struct InputState {
     pub val: f32, // 0..1
     pub active_is_foreground: bool,
     pub color_dragging: Option<ColorPickerDrag>,
+    // Filter state
+    pub show_filters: bool,
+    pub current_filter: Option<FilterType>,
+    pub filter_params: FilterParams,
+    // Brush dynamics state
+    pub dynamics_state: DynamicsState,
+    pub dynamics_enabled: bool,
+    // Selection state
+    pub selection: Selection,
+    pub selection_mode: SelectionMode,
+    pub selection_type: SelectionType,
+    pub lasso_points: Vec<(f32, f32)>,
+    // Viewport state
+    pub view_state: ViewState,
+    // Theme state
+    pub theme_config: ThemeConfig,
 }
 
 impl InputState {
@@ -67,6 +96,17 @@ impl InputState {
             val: 1.0,
             active_is_foreground: true,
             color_dragging: None,
+            show_filters: false,
+            current_filter: None,
+            filter_params: FilterParams::default(),
+            dynamics_state: DynamicsState::default(),
+            dynamics_enabled: true,
+            selection: Selection::new(800, 600),
+            selection_mode: SelectionMode::Replace,
+            selection_type: SelectionType::Rectangle,
+            lasso_points: vec![],
+            view_state: ViewState::new(),
+            theme_config: ThemeConfig::load_from_config(),
         }
     }
 
@@ -150,6 +190,88 @@ impl InputState {
         } else {
             self.set_background_color([rgb[0], rgb[1], rgb[2], 255]);
         }
+    }
+
+    /// Toggle brush dynamics on/off
+    pub fn toggle_dynamics(&mut self) {
+        self.dynamics_enabled = !self.dynamics_enabled;
+        self.dynamics_state.dynamics.enabled = self.dynamics_enabled;
+    }
+
+    /// Set active dynamics preset
+    pub fn set_dynamics_preset(&mut self, preset: DynamicsPreset) {
+        self.dynamics_state.set_preset(preset);
+        // Try to save
+        let _ = self.dynamics_state.save();
+    }
+
+    /// Get effective brush size with dynamics applied
+    pub fn get_dynamic_brush_size(&self, pressure: f32, speed_mult: f32) -> f32 {
+        if !self.dynamics_enabled {
+            return self.brush.radius;
+        }
+        let (size, _) = self.dynamics_state.dynamics.apply_dynamics(
+            self.brush.radius,
+            self.brush.color,
+            pressure,
+            speed_mult,
+        );
+        size
+    }
+
+    /// Get effective brush color with dynamics applied
+    pub fn get_dynamic_brush_color(&self, pressure: f32, speed_mult: f32) -> [u8; 4] {
+        if !self.dynamics_enabled {
+            return self.brush.color;
+        }
+        let (_, color) = self.dynamics_state.dynamics.apply_dynamics(
+            self.brush.radius,
+            self.brush.color,
+            pressure,
+            speed_mult,
+        );
+        color
+    }
+
+    /// Set selection mode (Replace, Add, Subtract, Intersect)
+    pub fn set_selection_mode(&mut self, mode: SelectionMode) {
+        self.selection_mode = mode;
+    }
+
+    /// Set selection type (Rectangle, Ellipse, Lasso)
+    pub fn set_selection_type(&mut self, sel_type: SelectionType) {
+        self.selection_type = sel_type;
+        self.lasso_points.clear();
+    }
+
+    /// Clear current selection
+    pub fn clear_selection(&mut self) {
+        self.selection.clear();
+        self.lasso_points.clear();
+    }
+
+    /// Select all
+    pub fn select_all(&mut self) {
+        self.selection.select_all();
+    }
+
+    /// Invert selection
+    pub fn invert_selection(&mut self) {
+        self.selection.invert();
+    }
+
+    /// Finalize lasso selection
+    pub fn finalize_lasso_selection(&mut self) {
+        if self.lasso_points.len() >= 3 {
+            self.selection.select_lasso(&self.lasso_points, self.selection_mode);
+        }
+        self.lasso_points.clear();
+    }
+
+    /// Toggle theme and save
+    pub fn toggle_theme(&mut self) {
+        self.theme_config.toggle_theme();
+        let _ = self.theme_config.save_to_config();
     }
 }
 
